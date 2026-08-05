@@ -2,7 +2,7 @@
   "name": "agent-feishu-bridge",
   "version": "1.0.0",
   "description": "自家二开的飞书桥：把本机 Agent（Codex / Claude / Opencode）接入飞书/Lark，流式卡片、推理展示、审批流、多后端可切换。",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Jokerautowrite/agent-feishu-bridge.git"
