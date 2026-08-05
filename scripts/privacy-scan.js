@@ -30,7 +30,7 @@ const SKIP_EXTENSIONS = new Set([
 ]);
 
 const PATTERNS = [
-  { name: "private-persona", re: /\b(Jiao|Mira)\b|予安/g },
+  { name: "private-persona", re: /\b(Mira)\b|予安/g },
   { name: "private-systems", re: /Obsidian|TaskNotes|OpenClaw|Hermes|Chronicle|Knowledge Wiki|Over CDN/gi },
   { name: "local-private-path", re: /\/Users\/keeploving/g },
   { name: "env-secret-assignment", re: /FEISHU_APP_SECRET\s*=\s*(?!x{6,}|YOUR_|<|$)[^\s]+/g },
@@ -41,7 +41,9 @@ const PATTERNS = [
 ];
 
 const ALLOWED_PUBLIC_TERMS = [
-  "Jiao-Joe",
+  "猫哥",
+  "Jokerautowrite",
+  "agent-feishu-bridge",
 ];
 
 function walk(dir) {

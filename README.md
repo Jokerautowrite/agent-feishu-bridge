@@ -128,6 +128,19 @@ npm run check
 npm run check:release
 ```
 
+## 赞助支持
+
+如果这个项目帮到了你，欢迎打赏一杯咖啡 ☕
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/sponsor/wechat-sponsor.jpg" width="200" alt="微信赞助"><br><b>微信</b></td>
+    <td align="center"><img src="docs/sponsor/alipay-sponsor.jpg" width="200" alt="支付宝赞助"><br><b>支付宝</b></td>
+  </tr>
+</table>
+
+赞助会用于维护本项目的服务器与开发投入，感谢你的支持 🙏
+
 ## License
 
 自定义开源协议 © 2026 猫哥
