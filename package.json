@@ -1,0 +1,69 @@
+{
+  "name": "agent-feishu-bridge",
+  "version": "1.0.0",
+  "description": "自家二开的飞书桥：把本机 Agent（Codex / Claude / Opencode）接入飞书/Lark，流式卡片、推理展示、审批流、多后端可切换。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jokerautowrite/agent-feishu-bridge.git"
+  },
+  "homepage": "https://github.com/Jokerautowrite/agent-feishu-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Jokerautowrite/agent-feishu-bridge/issues"
+  },
+  "type": "commonjs",
+  "main": "src/index.js",
+  "keywords": [
+    "codex",
+    "claude",
+    "opencode",
+    "agent",
+    "feishu",
+    "lark",
+    "bot",
+    "cli",
+    "remote",
+    "gateway"
+  ],
+  "files": [
+    "bin",
+    "docs",
+    "src",
+    "CHANGELOG.md",
+    "README.md",
+    ".env.example"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "codex-im": "./bin/codex-im.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "feishu-bot": "node ./bin/codex-im.js",
+    "check": "find src bin scripts -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "test:markdown": "node ./scripts/test-assistant-markdown.js",
+    "test:card-content": "node ./scripts/test-card-reply-content.js",
+    "test:log-level": "node ./scripts/test-log-level.js",
+    "test:delivery-receipts": "node ./scripts/test-delivery-receipt-hook.js",
+    "test:stale-turn-watchdog": "node ./scripts/test-stale-turn-watchdog.js",
+    "test:active-turn-steer": "node ./scripts/test-active-turn-steer.js",
+    "test:media": "node ./scripts/test-media-fixtures.js",
+    "test:directives": "node ./scripts/test-outbound-directives.js",
+    "privacy:scan": "node ./scripts/privacy-scan.js",
+    "pack:dry-run": "npm pack --dry-run",
+    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.62.0",
+    "axios": "^1.15.2",
+    "dotenv": "^16.4.7",
+    "ws": "^8.19.0"
+  },
+  "overrides": {
+    "axios": "^1.15.2"
+  }
+}

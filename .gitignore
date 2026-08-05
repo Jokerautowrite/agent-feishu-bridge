@@ -1,0 +1,23 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+.env
+.env.local
+.env.*.local
+!.env.example
+
+coverage/
+dist/
+*.tgz
+*.tar.gz
+
+.DS_Store
+Thumbs.db
+/.idea/
+/sessions.json
+
+# local-only backup dirs
+.bak-*/
