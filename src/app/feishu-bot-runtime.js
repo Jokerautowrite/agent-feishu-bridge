@@ -126,11 +126,8 @@ class FeishuBotRuntime {
     this.initializeFeishuSdk();
     await this.codex.connect();
     await this.codex.initialize();
-    if (process.env.OPENCODE_BRIDGE_BACKEND === "opencode" && typeof this.codex.startSseLoop === "function") {
-      this.codex.startSseLoop().catch((error) => {
-        console.error(`[codex-im] opencode SSE loop failed: ${error.message}`);
-      });
-    }
+    // opencode 后端：SSE 订阅由 connect() 内自动建立（serve 根目录），
+    // bind 到其他目录时适配器会按需补订阅。无需在此额外启动。
     await this.refreshAvailableModelCatalogAtStartup();
     this.startLongConnection();
     this.startStaleTurnWatchdog();

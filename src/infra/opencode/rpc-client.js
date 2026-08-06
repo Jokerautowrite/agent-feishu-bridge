@@ -72,10 +72,13 @@ class OpencodeRpcClient {
     this.listeners = [];
     this.threads = new Map();        // threadId -> opencode sessionId + cwd
     this.running = new Map();        // sessionId -> { turnId, timers, buffer, toolItems, reasoning, tokenUsage }
-    this.sseAbort = null;
+    this.sessionDirs = new Map();    // sessionId -> directory（事件路由用）
+    this.sseSubs = new Map();        // directory(""=serve根) -> { controller, stop, ready }
+    this.reasoningPartIds = new Set(); // 已确认是 reasoning 的 part id（delta 过滤用）
     this.sseStopped = false;
     this.connected = false;
     this.sseLoopStarted = false;
+    this.serveRoot = "";           // opencode serve 启动目录（connect 时探测）
     this.sseReadyResolve = null;
     this.sseReady = new Promise((resolve) => { this.sseReadyResolve = resolve; });
   }
@@ -85,14 +88,91 @@ class OpencodeRpcClient {
     this.log("connecting to opencode serve");
     await this.ping();
     this.connected = true;
-    // 常驻 SSE 循环必须在任何消息发出前就绪，否则会错过首轮 idle 事件
+    // 探测 serve 根目录：session 列表第一条的 directory 就是 serve 启动目录。
+    // 用它作为根订阅的 key，避免 "" 和具体路径两套订阅收到同一事件（重复）。
+    try {
+      const rootSessions = await this.listThreads({ limit: 1 });
+      const first = (rootSessions.result?.data || rootSessions.data || [])[0];
+      this.serveRoot = first?.cwd || "";
+    } catch (e) {
+      this.serveRoot = "";
+    }
+    // 常驻 SSE 订阅必须在任何消息发出前就绪，否则会错过首轮 idle 事件。
+    // 默认订阅 serve 根目录，bind 到其他目录时再按需订阅。
     if (!this.sseLoopStarted) {
       this.sseLoopStarted = true;
-      this.startSseLoop().catch((error) => {
-        console.error(`[opencode-im] SSE loop failed: ${error.message}`);
+      // 根订阅的 key 统一用 serveRoot（具体路径），不要用 ""——
+      // 否则 "" 和 serveRoot 两套订阅会同时收到 serve 根目录事件（重复）。
+      const rootKey = this.serveRoot || "";
+      this.subscribeDirectory(rootKey).catch((error) => {
+        console.error(`[opencode-im] SSE subscribe failed: ${error.message}`);
       });
     }
     return true;
+  }
+
+  /**
+   * 订阅一个目录的 SSE 事件流。directory="" 表示 serve 根目录（默认全局流）。
+   * opencode 的 /event 按目录隔离：项目目录 session 的事件只在带
+   * ?directory= 的订阅里出现。已订阅的目录直接复用。
+   */
+  async subscribeDirectory(directory, opts = {}) {
+    const key = String(directory || "");
+    if (this.sseSubs.has(key)) {
+      return this.sseSubs.get(key);
+    }
+    let sdk;
+    try {
+      sdk = await import("@opencode-ai/sdk/v2");
+    } catch (e) {
+      console.error(`[opencode-im] @opencode-ai/sdk not found: ${e.message}`);
+      return null;
+    }
+    const controller = new AbortController();
+    const sub = { controller, ready: null, stop: false };
+    const readyResolve = opts.waitReady
+      ? null
+      : new Promise((resolve) => { sub.ready = resolve; });
+    this.sseSubs.set(key, sub);
+
+    // 异步建立连接并迭代
+    (async () => {
+      try {
+        const client = sdk.createOpencodeClient({ baseUrl: this.serverUrl });
+        const params = key ? { directory: key } : undefined;
+        const events = await client.event.subscribe(params);
+        this.log(`opencode SSE stream connected (directory=${key || "<root>"})`);
+        if (sub.ready) {
+          const r = sub.ready;
+          sub.ready = null;
+          r();
+        }
+        if (opts.waitReadyResolve) opts.waitReadyResolve();
+        for await (const ev of events.stream) {
+          if (sub.stop || this.sseStopped) break;
+          if (this.sseReadyResolve) {
+            const r = this.sseReadyResolve;
+            this.sseReadyResolve = null;
+            r();
+          }
+          this.handleSseEvent(ev);
+        }
+        this.log(`opencode SSE stream ended (directory=${key || "<root>"})`);
+      } catch (err) {
+        if (!sub.stop && !this.sseStopped) {
+          this.log(`opencode SSE subscribe error (${key || "<root>"}): ${err.message}; retrying in 3s`);
+          await new Promise((r) => setTimeout(r, 3000));
+          if (!sub.stop && !this.sseStopped) {
+            this.sseSubs.delete(key);
+            await this.subscribeDirectory(key);
+          }
+        }
+      } finally {
+        this.sseSubs.delete(key);
+      }
+    })();
+
+    return sub;
   }
 
   async ping() {
@@ -126,10 +206,16 @@ class OpencodeRpcClient {
 
   // ── 线程 ────────────────────────────────────────────
   async startThread({ cwd } = {}) {
-    const resp = await fetch(`${this.serverUrl}/session`, {
+    // opencode 的 POST /session 通过 query 参数 ?directory= 指定工作目录
+    //（body 里的 cwd 会被忽略，实测 session.directory 会固定为 serve 启动目录）。
+    const url = new URL(`${this.serverUrl}/session`);
+    if (cwd) {
+      url.searchParams.set("directory", cwd);
+    }
+    const resp = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Feishu chat (agent-feishu-bridge)", cwd: cwd || undefined }),
+      body: JSON.stringify({ title: "Feishu chat (agent-feishu-bridge)" }),
     });
     if (!resp.ok) {
       throw new Error(`opencode create session failed: HTTP ${resp.status}`);
@@ -139,9 +225,19 @@ class OpencodeRpcClient {
     if (!sessionId) {
       throw new Error("opencode create session returned no id");
     }
+    const directory = cwd || data?.directory || "";
     const threadId = sessionId;
-    this.threads.set(threadId, { sessionId, cwd: cwd || "" });
-    this.log(`thread/start → session ${sessionId}`);
+    this.threads.set(threadId, { sessionId, cwd: directory });
+    this.sessionDirs.set(sessionId, directory);
+    // 该目录如果还没订阅 SSE，立即订阅（opencode 事件按目录隔离）。
+    // serve 根目录的会话用 serveRoot 作为 key，与 connect 里的根订阅保持一致。
+    if (this.sseLoopStarted) {
+      const subKey = directory || "";
+      await this.subscribeDirectory(subKey).catch((err) => {
+        this.log(`subscribe directory failed (${directory}): ${err.message}`);
+      });
+    }
+    this.log(`thread/start → session ${sessionId} (dir=${directory || "<root>"})`);
     return this.threadResponse(threadId);
   }
 
@@ -152,7 +248,15 @@ class OpencodeRpcClient {
     if (resp.status === 404) throw new Error(`opencode session not found: ${normalized}`);
     if (!resp.ok) throw new Error(`opencode get session failed: HTTP ${resp.status}`);
     const data = await resp.json();
-    this.threads.set(normalized, { sessionId: normalized, cwd: data?.directory || "" });
+    const directory = data?.directory || "";
+    this.threads.set(normalized, { sessionId: normalized, cwd: directory });
+    this.sessionDirs.set(normalized, directory);
+    if (this.sseLoopStarted) {
+      const subKey = directory || "";
+      await this.subscribeDirectory(subKey).catch((err) => {
+        this.log(`subscribe directory failed (${directory}): ${err.message}`);
+      });
+    }
     return this.threadResponse(normalized);
   }
 
@@ -162,16 +266,40 @@ class OpencodeRpcClient {
   }
 
   async listThreads({ limit = 100 } = {}) {
-    const resp = await fetch(`${this.serverUrl}/session?limit=${limit}`, { signal: AbortSignal.timeout(5000) });
-    if (!resp.ok) throw new Error(`opencode list sessions failed: HTTP ${resp.status}`);
-    const sessions = Array.isArray(await resp.json()) ? await resp.json() : [];
-    const data = sessions.map((s) => ({
-      id: s?.id,
-      cwd: s?.directory || "",
-      name: s?.title || s?.slug || "",
-      updatedAt: Number(s?.time?.updated || 0),
-      source: "opencode",
-    })).filter((t) => t.id);
+    // opencode 的 /session 列表只返回当前 directory 的 session。
+    // 要列出所有目录的会话：查 serve 根目录 + 所有已知目录（bind 过的），合并去重。
+    const directories = new Set([this.serveRoot || ""]);
+    for (const dir of this.sessionDirs.values()) {
+      if (dir) directories.add(dir);
+    }
+    const merged = new Map(); // id -> thread
+    for (const dir of directories) {
+      try {
+        const url = new URL(`${this.serverUrl}/session`);
+        url.searchParams.set("limit", String(limit));
+        if (dir) url.searchParams.set("directory", dir);
+        const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+        if (!resp.ok) continue;
+        const parsed = await resp.json();
+        const sessions = Array.isArray(parsed) ? parsed : [];
+        for (const s of sessions) {
+          const id = s?.id;
+          if (!id) continue;
+          merged.set(id, {
+            id,
+            cwd: s?.directory || dir || "",
+            name: s?.title || s?.slug || "",
+            updatedAt: Number(s?.time?.updated || 0),
+            // 用 "unknown" 而非 "opencode"：桥的 THREAD_SOURCE_KINDS 白名单不含
+            // 第三方来源名，不在白名单的 thread 会被 listThreads 过滤掉。
+            source: "unknown",
+          });
+        }
+      } catch (e) {
+        this.log(`listThreads directory failed (${dir || "<root>"}): ${e.message}`);
+      }
+    }
+    const data = [...merged.values()].slice(0, limit);
     return { result: { data }, data };
   }
 
@@ -267,6 +395,21 @@ class OpencodeRpcClient {
 
     this.emit("turn/started", { threadId: tid, turnId });
 
+    // 确保目标目录的 SSE 订阅已就绪再发消息，否则会错过该目录会话的 idle 事件。
+    // opencode 事件按目录隔离：必须等对应目录的订阅建立后才能收到该会话的事件。
+    const dir = this.sessionDirs.get(sessionId) || "";
+    const dirSub = this.sseSubs.get(dir);
+    if (dirSub && dirSub.ready) {
+      try {
+        await Promise.race([
+          dirSub.ready,
+          new Promise((_, rej) => setTimeout(() => rej(new Error(`SSE 订阅目录就绪超时 (${dir || "<root>"})`)), 8000)),
+        ]);
+      } catch (e) {
+        this.log(`wait dir subscribe ready: ${e.message}`);
+      }
+    }
+
     // 首事件超时：后端没动静就主动失败，不让人干等
     const fail = (reason) => {
       if (run.settled) return;
@@ -348,6 +491,9 @@ class OpencodeRpcClient {
     switch (type) {
       case "message.part.delta": {
         if (props.field !== "text") return;
+        // 该 delta 若属于 reasoning part，跳过（只做推理摘要，不当正文）
+        const partID = typeof props.partID === "string" ? props.partID : "";
+        if (partID && this.reasoningPartIds.has(partID)) return;
         const delta = typeof props.delta === "string" ? props.delta : "";
         if (!delta) return;
         run.sawText = true;
@@ -367,23 +513,24 @@ class OpencodeRpcClient {
         const part = props.part || {};
         const partType = part.type;
         if (partType === "text") {
-          const delta = props.delta || part.text;
-          if (typeof delta === "string" && delta) {
+          // 正文走 message.part.delta 流式增量；这里只标记已有文本，
+          // 不直接 emit（updated 会带用户消息回显和完整正文，与 delta 重复）。
+          const full = typeof part.text === "string" ? part.text : "";
+          if (full) {
             run.sawText = true;
-            run.buffer += delta;
-            if (run.buffer.length > MAX_TEXT_BUFFER) {
-              run.buffer = run.buffer.slice(0, MAX_TEXT_BUFFER) + "\n\n…(内容过长，已截断)";
+            if (!run.buffer) {
+              // delta 流未启动时用 updated 完整文本兜底（极少情况）
+              run.buffer = full;
             }
-            this.emit("item/agentMessage/delta", {
-              threadId: tid,
-              turnId,
-              delta,
-            });
           }
           return;
         }
 
         if (partType === "reasoning") {
+          // 记录 reasoning part id，后续该 part 的 delta 不当正文处理
+          if (typeof part.id === "string" && part.id) {
+            this.reasoningPartIds.add(part.id);
+          }
           if (typeof part.text === "string" && part.text) {
             run.reasoningText = mergeReasoning(run.reasoningText, part.text);
             if (run.reasoningText.length > 2400) {
@@ -538,46 +685,15 @@ class OpencodeRpcClient {
   // 用官方 @opencode-ai/sdk 的 event.subscribe() 订阅事件（与 opencode-lark 一致，
   // 已实测可用）。不要在底层手写 fetch+reader —— SDK 的 createSseClient 才是被
   // 验证过的路径。SDK 是 ESM，桥是 CJS，所以用动态 import()。
-  async startSseLoop() {
-    let sdk;
-    try {
-      sdk = await import("@opencode-ai/sdk/v2");
-    } catch (e) {
-      console.error(`[opencode-im] @opencode-ai/sdk not found: ${e.message}`);
-      return;
-    }
-    const controller = new AbortController();
-    this.sseAbort = controller;
-    try {
-      const client = sdk.createOpencodeClient({ baseUrl: this.serverUrl });
-      const events = await client.event.subscribe();
-      this.log("opencode SSE stream connected");
-      for await (const ev of events.stream) {
-        if (this.sseStopped) break;
-        if (this.sseReadyResolve) {
-          const r = this.sseReadyResolve;
-          this.sseReadyResolve = null;
-          r();
-        }
-        this.handleSseEvent(ev);
-      }
-      this.log("opencode SSE stream ended");
-    } catch (err) {
-      if (!this.sseStopped) {
-        this.log(`opencode SSE loop error: ${err.message}; retrying in 3s`);
-        await new Promise((r) => setTimeout(r, 3000));
-        this.sseAbort = null;
-        return this.startSseLoop();
-      }
-    }
-  }
-
   stopSseLoop() {
     this.sseStopped = true;
-    if (this.sseAbort) {
-      try { this.sseAbort.abort(); } catch {}
-      this.sseAbort = null;
+    // 停止所有目录的 SSE 订阅
+    for (const [dir, sub] of this.sseSubs.entries()) {
+      sub.stop = true;
+      try { sub.controller.abort(); } catch {}
+      this.log(`SSE subscription stopped (directory=${dir || "<root>"})`);
     }
+    this.sseSubs.clear();
   }
 
   killAll() { this.stopSseLoop(); this.running.clear(); }
