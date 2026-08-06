@@ -26,7 +26,7 @@ async function onFeishuTextEvent(runtime, event) {
 
   const workspaceContext = await runtime.resolveWorkspaceContext(normalized, {
     replyToMessageId: normalized.messageId,
-    missingWorkspaceText: "当前会话还未绑定项目。先发送 `/codex bind /绝对路径`。",
+    missingWorkspaceText: "当前会话还未绑定项目。先发送 `/opencode bind /绝对路径`。",
   });
   if (!workspaceContext) {
     return;
@@ -70,8 +70,8 @@ async function onFeishuTextEvent(runtime, event) {
         chatId: normalized.chatId,
         replyToMessageId: normalized.messageId,
         text: prompted
-          ? "上一条还在等授权。我已经把授权卡重新发出来了；也可以直接发 `/codex approve` 或 `/codex reject`。"
-          : "上一条还在等授权。可以直接发 `/codex approve` 允许本次请求，或发 `/codex reject` 拒绝。",
+          ? "上一条还在等授权。我已经把授权卡重新发出来了；也可以直接发 `/opencode approve` 或 `/opencode reject`。"
+          : "上一条还在等授权。可以直接发 `/opencode approve` 允许本次请求，或发 `/opencode reject` 拒绝。",
         kind: "approval",
       });
       return;
@@ -83,7 +83,7 @@ async function onFeishuTextEvent(runtime, event) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "当前线程还有任务在运行。请先等待完成，或发送 `/codex stop` 中断后再发新消息。",
+      text: "当前线程还有任务在运行。请先等待完成，或发送 `/opencode stop` 中断后再发新消息。",
     });
     return;
   }
@@ -193,9 +193,9 @@ function buildSteerFailureText(error) {
     || message.includes("manual /compact")
     || message.includes("/review")
   ) {
-    return "这轮正处在不能中途引导的阶段，这条没有送进去；请等它收口，或发送 `/codex stop` 后重新发。";
+    return "这轮正处在不能中途引导的阶段，这条没有送进去；请等它收口，或发送 `/opencode stop` 后重新发。";
   }
-  return "引导发送失败，这条没有交给当前任务；请直接再发一次，或发送 `/codex stop` 后重试。";
+  return "引导发送失败，这条没有交给当前任务；请直接再发一次，或发送 `/opencode stop` 后重试。";
 }
 
 function buildUnsupportedMessageText(messageType) {

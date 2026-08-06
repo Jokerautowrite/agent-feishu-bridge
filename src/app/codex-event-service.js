@@ -34,7 +34,7 @@ async function handleStopCommand(runtime, normalized) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: `${formatFailureText("停止请求未确认", error)}\n\n我已先清理飞书端运行状态，你可以继续发消息；如果终端侧仍在跑，建议稍后再发一次 /codex stop。`,
+      text: `${formatFailureText("停止请求未确认", error)}\n\n我已先清理飞书端运行状态，你可以继续发消息；如果终端侧仍在跑，建议稍后再发一次 /opencode stop。`,
     });
   }
 }

@@ -534,71 +534,71 @@ function buildHelpCardText() {
     ],
     [
       "**绑定项目**",
-      "`/codex bind /绝对路径`",
+      "`/opencode bind /绝对路径`",
       "把当前飞书会话绑定到一个本地项目。",
     ],
     [
       "**查看当前状态**",
-      "`/codex where`",
+      "`/opencode where`",
       "查看当前绑定的项目和正在使用的线程。",
     ],
     [
       "**查看最近消息**",
-      "`/codex message`",
+      "`/opencode message`",
       "查看当前线程最近几轮对话。",
     ],
     [
       "**查看可用历史线程**",
-      "`/codex workspace`",
+      "`/opencode workspace`",
       "查看当前项目下 Codex runtime 可见的历史线程。",
     ],
     [
       "**移除会话项目绑定**",
-      "`/codex remove /绝对路径`",
+      "`/opencode remove /绝对路径`",
       "从当前飞书会话中移除指定项目（不能移除当前项目）。",
     ],
     [
       "**发送当前项目内文件**",
-      "`/codex send <相对文件路径>`",
+      "`/opencode send <相对文件路径>`",
       "把当前项目内的文件发送到当前飞书会话。",
     ],
     [
       "**切换到指定线程**",
-      "`/codex switch <threadId>`",
+      "`/opencode switch <threadId>`",
       "按线程 ID 切换到指定线程。",
     ],
     [
       "**新建线程**",
-      "`/codex new`",
+      "`/opencode new`",
       "在当前项目下创建一条新线程并切换过去。",
     ],
     [
       "**中断运行**",
-      "`/codex stop`",
+      "`/opencode stop`",
       "停止当前线程里正在执行的任务。",
     ],
     [
       "**设置模型**",
-      "`/codex model`",
-      "`/codex model update`",
-      "`/codex model <modelId>`",
+      "`/opencode model`",
+      "`/opencode model update`",
+      "`/opencode model <modelId>`",
       "查看/设置当前项目的模型覆盖。",
     ],
     [
       "**设置推理强度**",
-      "`/codex effort`",
-      "`/codex effort <low|medium|high|xhigh|max|ultra>`",
+      "`/opencode effort`",
+      "`/opencode effort <low|medium|high|xhigh|max|ultra>`",
       "查看/设置当前项目的推理强度覆盖。",
     ],
     [
       "**切换 Codex 运行档**",
-      "`/codex profile`",
-      "`/codex profile main`",
+      "`/opencode profile`",
+      "`/opencode profile main`",
       "按需切换飞书桥背后的 Codex app-server。",
     ],
     [
       "**审批命令**",
-      "`/codex approve`\n`/codex approve workspace`\n`/codex reject`",
+      "`/opencode approve`\n`/opencode approve workspace`\n`/opencode reject`",
       "用于处理 Codex 发起的审批请求。",
     ],
   ];
@@ -1055,7 +1055,7 @@ function buildModelSelectElement(codexParams, modelOptions) {
   if (!options.length) {
     return {
       tag: "markdown",
-      content: "暂无可用模型（等待启动同步或执行 `/codex model update`）",
+      content: "暂无可用模型（等待启动同步或执行 `/opencode model update`）",
       text_size: "notation",
     };
   }
@@ -1213,9 +1213,9 @@ function buildModelInfoText(workspaceRoot, current, availableModelsResult) {
     ...modelLines,
     "",
     "用法：",
-    "`/codex model`",
-    "`/codex model update`",
-    "`/codex model <modelId>`",
+    "`/opencode model`",
+    "`/opencode model update`",
+    "`/opencode model <modelId>`",
     canLoadModels ? "" : "提示：当前无法拉取模型列表，设置模型会被拒绝。",
   ].join("\n");
 }
@@ -1236,9 +1236,9 @@ function buildEffortInfoText(workspaceRoot, current, availableModelsResult) {
     ...effortLines,
     "",
     "用法：",
-    "`/codex effort`",
-    "`/codex model update`",
-    "`/codex effort <low|medium|high|xhigh|max|ultra>`",
+    "`/opencode effort`",
+    "`/opencode model update`",
+    "`/opencode effort <low|medium|high|xhigh|max|ultra>`",
   ].join("\n");
 }
 
@@ -1251,7 +1251,7 @@ function buildModelListText(workspaceRoot, availableModelsResult, { refreshed = 
     "**可用模型**",
   ];
   lines.push(...buildAvailableModelLines(availableModelsResult, { limit: 60 }));
-  lines.push("", "用法：", "`/codex model update`", "`/codex model <modelId>`");
+  lines.push("", "用法：", "`/opencode model update`", "`/opencode model <modelId>`");
   return lines.join("\n");
 }
 
@@ -1268,7 +1268,7 @@ function buildModelValidationErrorText(workspaceRoot, rawModel, models) {
       lines.push(`- \`${item.model}\``);
     }
   }
-  lines.push("", "请执行 `/codex model` 查看可用模型。");
+  lines.push("", "请执行 `/opencode model` 查看可用模型。");
   return lines.join("\n");
 }
 
@@ -1287,9 +1287,9 @@ function buildEffortListText(workspaceRoot, current, availableModelsResult, { re
     ...buildAvailableEffortLines(effectiveModel, availableModelsResult),
     "",
     "用法：",
-    "`/codex effort`",
-    "`/codex model update`",
-    "`/codex effort <low|medium|high|xhigh|max|ultra>`",
+    "`/opencode effort`",
+    "`/opencode model update`",
+    "`/opencode effort <low|medium|high|xhigh|max|ultra>`",
   ];
   return lines.join("\n");
 }
@@ -1305,7 +1305,7 @@ function buildEffortValidationErrorText(workspaceRoot, modelEntry, rawEffort) {
     "可用推理强度：",
     ...supportedLines,
     "",
-    "请执行 `/codex effort` 查看可用推理强度。",
+    "请执行 `/opencode effort` 查看可用推理强度。",
   ].join("\n");
 }
 
@@ -1324,7 +1324,7 @@ function buildAvailableModelLines(availableModelsResult, { limit = 10 } = {}) {
     lines.push(`- \`${item.model}\``);
   }
   if (models.length > display.length) {
-    lines.push(`- ... 还有 ${models.length - display.length} 个，执行 \`/codex model\` 查看全部`);
+    lines.push(`- ... 还有 ${models.length - display.length} 个，执行 \`/opencode model\` 查看全部`);
   }
   return lines;
 }

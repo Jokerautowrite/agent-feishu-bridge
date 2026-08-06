@@ -426,7 +426,7 @@ function isCommandApprovalMethod(method) {
 function isWorkspaceApprovalCommand(rawText) {
   const normalizedText = typeof rawText === "string" ? rawText.trim().toLowerCase() : "";
   return (
-    normalizedText === "/codex approve workspace"
+    normalizedText === "/opencode approve workspace"
     || normalizedText.endsWith(" approve workspace")
   );
 }

@@ -418,8 +418,9 @@ function dedupeStrings(values) {
 
 function parseCommand(text) {
   const normalized = text.trim().toLowerCase();
-  const prefixes = ["/codex "];
-  const exactPrefixes = ["/codex"];
+
+  // 命令前缀：/codex 兼容旧用户，/opencode 用于 opencode 后端
+  const COMMAND_PREFIXES = ["/codex", "/opencode"];
 
   const exactCommands = {
     stop: ["stop"],
@@ -438,37 +439,41 @@ function parseCommand(text) {
   };
 
   for (const [command, suffixes] of Object.entries(exactCommands)) {
-    if (matchesExactCommand(normalized, suffixes)) {
-      return command;
+    for (const prefix of COMMAND_PREFIXES) {
+      if (matchesExactCommand(normalized, suffixes, prefix)) {
+        return command;
+      }
     }
   }
 
-  if (matchesPrefixCommand(normalized, "switch")) {
-    return "switch";
+  for (const prefix of COMMAND_PREFIXES) {
+    if (matchesPrefixCommand(normalized, "switch", prefix)) {
+      return "switch";
+    }
+    if (matchesPrefixCommand(normalized, "remove", prefix)) {
+      return "remove";
+    }
+    if (matchesPrefixCommand(normalized, "send", prefix)) {
+      return "send";
+    }
+    if (matchesPrefixCommand(normalized, "bind", prefix)) {
+      return "bind";
+    }
+    if (matchesPrefixCommand(normalized, "model", prefix)) {
+      return "model";
+    }
+    if (matchesPrefixCommand(normalized, "effort", prefix)) {
+      return "effort";
+    }
+    if (matchesPrefixCommand(normalized, "profile", prefix)) {
+      return "profile";
+    }
   }
-  if (matchesPrefixCommand(normalized, "remove")) {
-    return "remove";
-  }
-  if (matchesPrefixCommand(normalized, "send")) {
-    return "send";
-  }
-  if (matchesPrefixCommand(normalized, "bind")) {
-    return "bind";
-  }
-  if (matchesPrefixCommand(normalized, "model")) {
-    return "model";
-  }
-  if (matchesPrefixCommand(normalized, "effort")) {
-    return "effort";
-  }
-  if (matchesPrefixCommand(normalized, "profile")) {
-    return "profile";
-  }
-  if (prefixes.some((prefix) => normalized.startsWith(prefix))) {
-    return "unknown_command";
-  }
-  if (exactPrefixes.includes(normalized)) {
-    return "unknown_command";
+
+  for (const prefix of COMMAND_PREFIXES) {
+    if (normalized.startsWith(`${prefix} `) || normalized === prefix) {
+      return "unknown_command";
+    }
   }
   if (text.trim()) {
     return "message";
@@ -477,12 +482,12 @@ function parseCommand(text) {
   return "";
 }
 
-function matchesExactCommand(text, suffixes) {
-  return suffixes.some((suffix) => text === `/codex ${suffix}`);
+function matchesExactCommand(text, suffixes, prefix) {
+  return suffixes.some((suffix) => text === `${prefix} ${suffix}`);
 }
 
-function matchesPrefixCommand(text, command) {
-  return text.startsWith(`/codex ${command} `);
+function matchesPrefixCommand(text, command, prefix) {
+  return text.startsWith(`${prefix} ${command} `);
 }
 
 function extractCardChatId(data) {

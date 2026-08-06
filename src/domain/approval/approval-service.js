@@ -142,7 +142,7 @@ async function sendApprovalPrompt(runtime, {
     await runtime.sendInfoCardMessage({
       chatId: context.chatId,
       replyToMessageId: context.replyToMessageId || "",
-      text: "当前 Codex 正在等待授权。审批卡发送失败时，可以先发 `/codex approve` 允许本次请求，或发 `/codex reject` 拒绝。",
+      text: "当前 Codex 正在等待授权。审批卡发送失败时，可以先发 `/opencode approve` 允许本次请求，或发 `/opencode reject` 拒绝。",
       kind: "info",
     }).catch((fallbackError) => {
       console.error(`[codex-im] failed to send approval fallback: ${fallbackError.message}`);

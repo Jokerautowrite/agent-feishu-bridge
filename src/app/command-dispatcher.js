@@ -171,7 +171,8 @@ async function runCodexCommandFromCard(runtime, normalized, command, value) {
   }
   const synthetic = {
     ...normalized,
-    text: `/codex ${command} ${normalizedValue}`,
+    // 用 /opencode 前缀（与当前后端一致；parseCommand 也兼容 /codex）
+    text: `/opencode ${command} ${normalizedValue}`,
     command,
   };
   if (command === "model") {

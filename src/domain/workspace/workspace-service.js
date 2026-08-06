@@ -94,7 +94,7 @@ async function handleBindCommand(runtime, normalized) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "用法: `/codex bind /绝对路径`",
+      text: "用法: `/opencode bind /绝对路径`",
     });
     return;
   }
@@ -246,7 +246,7 @@ async function handleUnknownCommand(runtime, normalized) {
   await runtime.sendInfoCardMessage({
     chatId: normalized.chatId,
     replyToMessageId: normalized.messageId,
-    text: "无效的 Codex 命令。\n\n可使用 `/codex help` 查看命令教程。",
+    text: "无效的 Codex 命令。\n\n可使用 `/opencode help` 查看命令教程。",
   });
 }
 
@@ -264,7 +264,7 @@ async function handleSendCommand(runtime, normalized) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "用法: `/codex send <当前项目下的相对文件路径>`",
+      text: "用法: `/opencode send <当前项目下的相对文件路径>`",
     });
     return;
   }
@@ -452,7 +452,7 @@ async function handleEffortCommand(runtime, normalized) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "当前无法确定模型，请先执行 `/codex model` 并设置模型后再设置推理强度。",
+      text: "当前无法确定模型，请先执行 `/opencode model` 并设置模型后再设置推理强度。",
     });
     return;
   }
@@ -486,7 +486,7 @@ async function handleWorkspacesCommand(runtime, normalized, { replyToMessageId }
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: replyTarget,
-      text: "当前会话还没有已绑定项目。先发送 `/codex bind /绝对路径`。",
+      text: "当前会话还没有已绑定项目。先发送 `/opencode bind /绝对路径`。",
     });
     return;
   }
@@ -505,7 +505,7 @@ async function showThreadPicker(runtime, normalized, { replyToMessageId } = {}) 
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: replyTarget,
-      text: "当前会话还未绑定项目。先发送 `/codex bind /绝对路径`。",
+      text: "当前会话还未绑定项目。先发送 `/opencode bind /绝对路径`。",
     });
     return;
   }
@@ -538,7 +538,7 @@ async function handleRemoveCommand(runtime, normalized) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "用法: `/codex remove /绝对路径`",
+      text: "用法: `/opencode remove /绝对路径`",
     });
     return;
   }
@@ -585,7 +585,7 @@ async function switchWorkspaceByPath(runtime, normalized, workspaceRoot, { reply
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: replyToMessageId || normalized.messageId,
-      text: "该项目未绑定到当前会话，请先执行 `/codex bind /绝对路径`。",
+      text: "该项目未绑定到当前会话，请先执行 `/opencode bind /绝对路径`。",
     });
     return;
   }
@@ -664,7 +664,7 @@ module.exports = {
 function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
   const normalizedInput = normalizeWorkspacePath(requestedPath);
   if (!normalizedInput) {
-    return { errorText: "用法: `/codex send <当前项目下的相对文件路径>`" };
+    return { errorText: "用法: `/opencode send <当前项目下的相对文件路径>`" };
   }
   if (isAbsoluteWorkspacePath(normalizedInput)) {
     return { errorText: "只支持当前项目下的相对路径，不支持绝对路径。" };
@@ -740,7 +740,7 @@ function validateDefaultCodexParamsConfig(runtime, modelsInput) {
 async function resolveCodexSettingWorkspaceContext(runtime, normalized) {
   return resolveWorkspaceContext(runtime, normalized, {
     replyToMessageId: normalized.messageId,
-    missingWorkspaceText: "当前会话还未绑定项目。先发送 `/codex bind /绝对路径`。",
+    missingWorkspaceText: "当前会话还未绑定项目。先发送 `/opencode bind /绝对路径`。",
   });
 }
 
@@ -757,7 +757,7 @@ async function loadAvailableModelsForSetting(runtime, normalized, { settingType 
   }
   const isEffort = settingType === "effort";
   const actionLabel = isEffort ? "推理强度" : "模型";
-  const listCommand = isEffort ? "/codex effort" : "/codex model";
+  const listCommand = isEffort ? "/opencode effort" : "/opencode model";
   await runtime.sendInfoCardMessage({
     chatId: normalized.chatId,
     replyToMessageId: normalized.messageId,
