@@ -2,6 +2,10 @@
 
 自家二开的飞书桥：把本机 Agent 接入飞书/Lark，流式卡片、推理展示、审批流。
 
+[![License](https://img.shields.io/badge/license-猫哥自定义-blue)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-green)](package.json)
+[![Powered by 猫哥](https://img.shields.io/badge/powered_by-猫哥-orange)](https://tn-vibecoding.eu.cc)
+
 ```text
 飞书消息 -> 本机 Agent 后端 -> 飞书回复（流式卡片）
 ```
@@ -9,6 +13,28 @@
 > 定位说明：本仓库 fork 自上游 `codex-feishu-bridge`，已做自有化改造。
 > Claude 后端在独立分支/仓库维护（`~/projects/claude-feishu-bridge`），通过
 > `CLAUDE_BRIDGE_BACKEND=claude` 切换，卡片格式、推理展示、审批流与 Codex 后端一致。
+
+## 效果预览
+
+在飞书里和 Agent 对话，回复以流式卡片实时展示：
+
+<p align="center">
+  <img src="docs/demo-1.png" width="340" alt="飞书对话示例">
+  <img src="docs/demo-2.png" width="340" alt="回复卡片详情">
+</p>
+
+- **图 1**：飞书对话与流式回复卡片
+- **图 2**：卡片详情——耗时、模型名、推理强度、上下文用量百分比、是否建议开新线程
+
+## 快速开始
+
+```sh
+npm install
+cp .env.example .env   # 填飞书 APP_ID / APP_SECRET
+npm run feishu-bot
+```
+
+> 飞书后台记得把「事件订阅」「回调订阅」都设为**长连接**，否则消息进不来。
 
 ## 它能做什么
 
@@ -133,6 +159,11 @@ npm run check:release
 - **猫哥 · vibecoding** — 个人站：自然语言即代码，人人都是创造者：[https://tn-vibecoding.eu.cc](https://tn-vibecoding.eu.cc)
 - **5yuantoken 中转站** — 稳定高速的 AI API 中转平台：[https://5yuantoken.org](https://5yuantoken.org)
 - **五元创影** — AI 生图/视频创作站：[https://canvas.5yuantoken.org](https://canvas.5yuantoken.org)
+
+## 联系我们
+
+- QQ：471959546
+- 邮箱：tn471959546@gmail.com
 
 ## 赞助支持
 
