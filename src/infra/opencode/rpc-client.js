@@ -607,4 +607,6 @@ function extractText(input) {
 
 module.exports = {
   OpencodeRpcClient,
+  // 兼容 runtime 的统一解构：CodexRpcClient 指向 opencode 适配器
+  CodexRpcClient: OpencodeRpcClient,
 };

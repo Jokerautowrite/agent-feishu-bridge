@@ -3,8 +3,7 @@ const { SessionStore } = require("../infra/storage/session-store");
 // 后端可切：OPENCODE_BRIDGE_BACKEND=opencode 走 opencode serve，否则原样走 Codex
 const { CodexRpcClient } = process.env.OPENCODE_BRIDGE_BACKEND === "opencode"
   ? require("../infra/opencode/rpc-client")
-  : require("../infra/codex/rpc-client");
-const {
+  : require("../infra/codex/rpc-client");const {
   buildCardResponse,
   buildCardToast,
   buildEffortInfoText,
