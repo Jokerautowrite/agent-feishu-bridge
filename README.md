@@ -11,8 +11,13 @@
 ```
 
 > 定位说明：本仓库 fork 自上游 `codex-feishu-bridge`，已做自有化改造。
-> Claude 后端在独立分支/仓库维护（`~/projects/claude-feishu-bridge`），通过
-> `CLAUDE_BRIDGE_BACKEND=claude` 切换，卡片格式、推理展示、审批流与 Codex 后端一致。
+> 支持多后端，通过环境变量切换，卡片格式、推理展示、审批流一致：
+>
+> | 后端 | 切换 |
+> | --- | --- |
+> | Codex（默认） | 不设 `OPENCODE_BRIDGE_BACKEND` |
+> | Claude Code | `CLAUDE_BRIDGE_BACKEND=claude`（独立仓库维护） |
+> | Opencode | `OPENCODE_BRIDGE_BACKEND=opencode`，需 opencode serve 运行 |
 
 ## 效果预览
 
@@ -79,6 +84,24 @@ systemctl --user status agent-feishu-bridge
 ```text
 FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxxx
 FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+### Opencode 后端
+
+用 opencode serve 当后端（复用本机 OpenCode 会话，模型走 opencode.json 配置）：
+
+```sh
+opencode serve --port 4096          # 先起 opencode serve
+```
+
+`.env` 里设置：
+
+```text
+OPENCODE_BRIDGE_BACKEND=opencode
+OPENCODE_SERVER_URL=http://127.0.0.1:4096
+```
+
+依赖：`@opencode-ai/sdk`（已加入 package.json）。SSE 事件订阅走官方 SDK，与 opencode-lark 同源。
 CODEX_IM_DEFAULT_CODEX_MODEL=gpt-5.3-codex
 CODEX_IM_DEFAULT_CODEX_EFFORT=medium
 CODEX_IM_DEFAULT_CODEX_ACCESS_MODE=default

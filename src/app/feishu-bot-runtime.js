@@ -1,6 +1,9 @@
 const { readConfig } = require("../infra/config/config");
 const { SessionStore } = require("../infra/storage/session-store");
-const { CodexRpcClient } = require("../infra/codex/rpc-client");
+// 后端可切：OPENCODE_BRIDGE_BACKEND=opencode 走 opencode serve，否则原样走 Codex
+const { CodexRpcClient } = process.env.OPENCODE_BRIDGE_BACKEND === "opencode"
+  ? require("../infra/opencode/rpc-client")
+  : require("../infra/codex/rpc-client");
 const {
   buildCardResponse,
   buildCardToast,
@@ -124,6 +127,11 @@ class FeishuBotRuntime {
     this.initializeFeishuSdk();
     await this.codex.connect();
     await this.codex.initialize();
+    if (process.env.OPENCODE_BRIDGE_BACKEND === "opencode" && typeof this.codex.startSseLoop === "function") {
+      this.codex.startSseLoop().catch((error) => {
+        console.error(`[codex-im] opencode SSE loop failed: ${error.message}`);
+      });
+    }
     await this.refreshAvailableModelCatalogAtStartup();
     this.startLongConnection();
     this.startStaleTurnWatchdog();
