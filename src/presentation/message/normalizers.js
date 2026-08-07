@@ -105,7 +105,26 @@ function extractCardAction(data) {
       workspaceRoot: value.workspaceRoot || "",
     };
   }
+  if (value.kind === "form") {
+    return {
+      kind: value.kind,
+      action: value.action || "",
+      formValue: extractCardFormValue(action),
+    };
+  }
   return null;
+}
+
+function extractCardFormValue(action) {
+  const raw = action?.form_value || action?.formValue || {};
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const result = {};
+  for (const [key, val] of Object.entries(raw)) {
+    result[key] = typeof val === "string" ? val.trim() : val;
+  }
+  return result;
 }
 
 function normalizeCardActionContext(data, config) {

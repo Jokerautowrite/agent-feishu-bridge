@@ -76,11 +76,13 @@ async function resolveWorkspaceContext(
   const replyTarget = runtime.resolveReplyToMessageId(normalized, replyToMessageId);
   const { bindingKey, workspaceRoot } = runtime.getBindingContext(normalized);
   if (!workspaceRoot) {
-    await runtime.sendInfoCardMessage({
-      chatId: normalized.chatId,
-      replyToMessageId: replyTarget,
-      text: missingWorkspaceText,
-    });
+    if (missingWorkspaceText) {
+      await runtime.sendInfoCardMessage({
+        chatId: normalized.chatId,
+        replyToMessageId: replyTarget,
+        text: missingWorkspaceText,
+      });
+    }
     return null;
   }
 
@@ -99,12 +101,20 @@ async function handleBindCommand(runtime, normalized) {
     return;
   }
 
-  const workspaceRoot = normalizeWorkspacePath(rawWorkspaceRoot);
+  const workspaceRoot = resolveBindWorkspacePath(runtime, rawWorkspaceRoot);
+  if (!workspaceRoot) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: "无法解析项目路径。支持绝对路径，或填写 `CODEX_IM_PROJECTS_ROOT` 下的文件夹名。",
+    });
+    return;
+  }
   if (!isAbsoluteWorkspacePath(workspaceRoot)) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "只支持绝对路径绑定。Windows 例如 `C:\\code\\repo`，macOS/Linux 例如 `/Users/name/repo`。",
+      text: "只支持绝对路径绑定，或 `CODEX_IM_PROJECTS_ROOT` 下的文件夹名。",
     });
     return;
   }
@@ -148,16 +158,106 @@ async function handleBindCommand(runtime, normalized) {
   });
 }
 
+function resolveBindWorkspacePath(runtime, rawWorkspaceRoot) {
+  const raw = String(rawWorkspaceRoot || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const normalized = normalizeWorkspacePath(raw);
+  if (isAbsoluteWorkspacePath(normalized)) {
+    return normalized;
+  }
+  // 相对输入：拼到默认项目根目录
+  const projectsRoot = normalizeWorkspacePath(
+    runtime.config?.defaultProjectsRoot || ""
+  );
+  if (!projectsRoot || raw.includes("/") || raw.includes("\\")) {
+    return "";
+  }
+  return normalizeWorkspacePath(`${projectsRoot}/${raw}`);
+}
+
+async function bindWorkspaceFromForm(runtime, normalized, projectName) {
+  const rawWorkspaceRoot = String(projectName || "").trim();
+  if (!rawWorkspaceRoot) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: "请填写要绑定的文件夹名。",
+    });
+    return;
+  }
+
+  const bindingKey = runtime.sessionStore.buildChatBindingKey(normalized);
+  const currentWorkspaceRoot = runtime.resolveWorkspaceRootForBinding(bindingKey);
+  const workspaceRoot = resolveBindWorkspacePath(runtime, rawWorkspaceRoot);
+  if (!workspaceRoot || !isAbsoluteWorkspacePath(workspaceRoot)) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: "无法解析项目路径。请填写 `CODEX_IM_PROJECTS_ROOT` 下的文件夹名，或绝对路径。",
+    });
+    return;
+  }
+
+  if (currentWorkspaceRoot && currentWorkspaceRoot === workspaceRoot) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: "该项目已绑定，无需重复操作。",
+    });
+    return;
+  }
+  if (!isWorkspaceAllowed(workspaceRoot, runtime.config.workspaceAllowlist)) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: "该项目不在允许绑定的白名单中。",
+    });
+    return;
+  }
+
+  const workspaceStats = await runtime.resolveWorkspaceStats(workspaceRoot);
+  if (!workspaceStats.exists) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: `项目不存在: ${workspaceRoot}`,
+    });
+    return;
+  }
+  if (!workspaceStats.isDirectory) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: `路径非法: ${workspaceRoot}`,
+    });
+    return;
+  }
+
+  applyDefaultCodexParamsOnBind(runtime, bindingKey, workspaceRoot);
+  runtime.sessionStore.setActiveWorkspaceRoot(bindingKey, workspaceRoot);
+  await runtime.refreshWorkspaceThreads(bindingKey, workspaceRoot, normalized);
+  const existingThreadId = runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot);
+  await showStatusPanel(runtime, normalized, {
+    replyToMessageId: normalized.messageId,
+    noticeText: existingThreadId
+      ? "已绑定项目，并恢复原会话上下文。"
+      : "已绑定项目，可以开始对话了。",
+  });
+}
+
 async function handleWhereCommand(runtime, normalized) {
   await showStatusPanel(runtime, normalized);
 }
 
 async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeText = "" } = {}) {
-  const workspaceContext = await resolveWorkspaceContext(runtime, normalized, { replyToMessageId });
-  if (!workspaceContext) {
+  const replyTarget = runtime.resolveReplyToMessageId(normalized, replyToMessageId);
+  const { bindingKey, workspaceRoot } = runtime.getBindingContext(normalized);
+  if (!workspaceRoot) {
+    await sendWelcomeCard(runtime, normalized, { replyToMessageId: replyTarget });
     return;
   }
-  const { bindingKey, workspaceRoot, replyTarget } = workspaceContext;
 
   const { threads, threadId } = await runtime.resolveWorkspaceThreadState({
     bindingKey,
@@ -175,6 +275,11 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
   const availableModels = Array.isArray(availableCatalog?.models) ? availableCatalog.models : [];
   const modelOptions = buildModelSelectOptions(availableModels);
   const effortOptions = buildEffortSelectOptions(availableModels, codexParams?.model || "");
+  const quickCommandOptions = [
+    { label: "📖 /help 帮助", value: "/help" },
+    { label: "🗑️ 清空上下文", value: "/clear" },
+    { label: "🔁 切换项目", value: "/switch_project" },
+  ];
   await runtime.sendInteractiveCard({
     chatId: normalized.chatId,
     replyToMessageId: replyTarget,
@@ -189,6 +294,23 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
       totalThreadCount: threads.length,
       status,
       noticeText,
+      backend: process.env.AGENT_BRIDGE_BACKEND || "",
+      quickCommandOptions,
+    }),
+  });
+}
+
+async function sendWelcomeCard(runtime, normalized, { replyToMessageId = "" } = {}) {
+  const replyTarget = runtime.resolveReplyToMessageId(normalized, replyToMessageId);
+  const projectsRoot = normalizeWorkspacePath(
+    runtime.config?.defaultProjectsRoot || ""
+  ) || "~/projects";
+  await runtime.sendInteractiveCard({
+    chatId: normalized.chatId,
+    replyToMessageId: replyTarget,
+    card: runtime.buildWelcomeCard({
+      backend: process.env.AGENT_BRIDGE_BACKEND || "",
+      projectsRoot,
     }),
   });
 }
@@ -643,6 +765,7 @@ async function removeWorkspaceByPath(runtime, normalized, workspaceRoot, { reply
 }
 
 module.exports = {
+  bindWorkspaceFromForm,
   handleBindCommand,
   handleEffortCommand,
   handleHelpCommand,
@@ -654,6 +777,7 @@ module.exports = {
   handleWhereCommand,
   handleWorkspacesCommand,
   removeWorkspaceByPath,
+  sendWelcomeCard,
   resolveWorkspaceContext,
   showStatusPanel,
   showThreadPicker,

@@ -24,6 +24,10 @@ const PANEL_ACTION_CONFIG = Object.freeze({
     feedback: "正在设置推理强度...",
     missingValueText: "未读取到推理强度选择值，请重新选择。",
   }),
+  quick_command: Object.freeze({
+    feedback: "正在执行快捷指令...",
+    missingValueText: "未读取到指令选择值，请重新选择。",
+  }),
 });
 
 const THREAD_ACTION_CONFIG = Object.freeze({

@@ -17,6 +17,62 @@ const {
 } = require("./builders");
 
 const CARDKIT_STREAMING_ELEMENT_ID = "streaming_content";
+const CARDKIT_BODY_MAX_BYTES = 16 * 1024;
+
+/**
+ * 长消息分片：把超长正文按段落切成多块（每块 <= maxBytes），
+ * 尽量在段落边界切分，避免拆散代码块。
+ */
+function splitLongText(text, maxBytes) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return [];
+  }
+  if (Buffer.byteLength(normalized, "utf8") <= maxBytes) {
+    return [normalized];
+  }
+
+  // 优先按段落（\n\n）切；段落过长时再按行兜底
+  const paragraphs = normalized.split(/\n{2,}/);
+  const chunks = [];
+  let current = "";
+
+  const flush = () => {
+    if (!current.trim()) return;
+    chunks.push(current.trim());
+    current = "";
+  };
+
+  for (const paragraph of paragraphs) {
+    if (!paragraph.trim()) continue;
+    const candidate = current ? `${current}\n\n${paragraph}` : paragraph;
+    if (Buffer.byteLength(candidate, "utf8") <= maxBytes) {
+      current = candidate;
+      continue;
+    }
+    flush();
+    if (Buffer.byteLength(paragraph, "utf8") <= maxBytes) {
+      current = paragraph;
+      continue;
+    }
+    // 单个段落超长：按行拆
+    const lines = paragraph.split("\n");
+    let lineChunk = "";
+    for (const line of lines) {
+      const next = lineChunk ? `${lineChunk}\n${line}` : line;
+      if (Buffer.byteLength(next, "utf8") <= maxBytes) {
+        lineChunk = next;
+      } else {
+        if (lineChunk) chunks.push(lineChunk.trim());
+        lineChunk = line;
+      }
+    }
+    if (lineChunk) chunks.push(lineChunk.trim());
+    lineChunk = "";
+  }
+  flush();
+  return chunks.length ? chunks : [normalized];
+}
 
 /**
  * 飞书回复卡片外观参数（改这里即可换肤，无需动其他代码）
@@ -580,7 +636,8 @@ async function flushCardKitReplyCard(runtime, runKey, entry) {
 
 async function finalizeCardKitReply(runtime, entry) {
   const adapter = runtime.requireFeishuAdapter();
-  const card = buildCardKitFinalCard(runtime, entry);
+  const display = buildAssistantDisplayContent(entry);
+  const card = buildCardKitFinalCard(runtime, entry, display);
 
   entry.cardKitSequence += 1;
   await adapter.setCardStreamingMode({
@@ -595,6 +652,17 @@ async function finalizeCardKitReply(runtime, entry) {
     card,
     sequence: entry.cardKitSequence,
   });
+
+  // 长回复分片：主卡只放第一片，剩余内容逐片作为独立消息发送
+  const chunks = Array.isArray(display.chunks) ? display.chunks : [];
+  const totalPieces = chunks.length + 1;
+  for (let i = 0; i < chunks.length; i++) {
+    await sendInfoCardMessage(runtime, {
+      chatId: entry.chatId,
+      text: `**📄 续篇 ${i + 2}/${totalPieces}**\n\n${chunks[i]}`,
+      kind: "info",
+    });
+  }
 }
 
 function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
@@ -711,9 +779,9 @@ function buildCardKitStopButton(entry) {
   };
 }
 
-function buildCardKitFinalCard(runtime, entry) {
+function buildCardKitFinalCard(runtime, entry, displayOverride) {
   const runKey = codexMessageUtils.buildRunKey(entry.threadId, entry.turnId);
-  const display = buildAssistantDisplayContent(entry);
+  const display = displayOverride || buildAssistantDisplayContent(entry);
   const content = display.answer;
   const footerElements = buildCardKitFooter(runtime, entry);
   const elements = [
@@ -880,8 +948,18 @@ function buildAssistantDisplayContent(entry) {
     };
   }
   const split = splitAssistantReplyForDisplay(raw);
+  const formattedAnswer = formatCardKitAssistantMarkdown(split.answerText);
+  if (Buffer.byteLength(formattedAnswer, "utf8") > CARDKIT_BODY_MAX_BYTES) {
+    const chunks = splitLongText(formattedAnswer, CARDKIT_BODY_MAX_BYTES);
+    const first = chunks[0] || formattedAnswer;
+    return {
+      answer: `${first}\n\n_（回复较长，剩余内容已分片发送，请往下看）_`,
+      notes: formatCardKitThinkingMarkdown(split.preAnswerText),
+      chunks: chunks.slice(1),
+    };
+  }
   return {
-    answer: formatCardKitAssistantMarkdown(split.answerText),
+    answer: formattedAnswer,
     notes: formatCardKitThinkingMarkdown(split.preAnswerText),
   };
 }

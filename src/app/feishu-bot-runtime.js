@@ -29,6 +29,7 @@ const {
   buildThreadMessagesSummary,
   buildThreadPickerCard,
   buildWorkspaceBindingsCard,
+  buildWelcomeCard,
   listBoundWorkspaces,
 } = require("../presentation/card/builders");
 const {
@@ -594,6 +595,7 @@ function attachRuntimeForwarders() {
     buildModelListText,
     buildModelValidationErrorText,
     buildStatusPanelCard,
+    buildWelcomeCard,
     buildThreadMessagesSummary,
     buildThreadPickerCard,
     buildWorkspaceBindingsCard,
@@ -627,6 +629,8 @@ function attachRuntimeForwarders() {
     applyApprovalDecision: approvalRuntime.applyApprovalDecision,
     sendApprovalPrompt: approvalRuntime.sendApprovalPrompt,
     handleBindCommand: workspaceRuntime.handleBindCommand,
+    bindWorkspaceFromForm: workspaceRuntime.bindWorkspaceFromForm,
+    sendWelcomeCard: workspaceRuntime.sendWelcomeCard,
     handleWhereCommand: workspaceRuntime.handleWhereCommand,
     showStatusPanel: workspaceRuntime.showStatusPanel,
     handleMessageCommand: workspaceRuntime.handleMessageCommand,
@@ -656,6 +660,7 @@ function attachRuntimeForwarders() {
     handlePanelCardAction: runtimeCommands.handlePanelCardAction,
     handleThreadCardAction: runtimeCommands.handleThreadCardAction,
     handleWorkspaceCardAction: runtimeCommands.handleWorkspaceCardAction,
+    handleFormCardAction: runtimeCommands.handleFormCardAction,
     queueCardActionWithFeedback,
     runCardActionTask,
     handleApprovalCardActionAsync: approvalRuntime.handleApprovalCardActionAsync,

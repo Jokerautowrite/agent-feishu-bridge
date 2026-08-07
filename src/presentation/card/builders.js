@@ -379,6 +379,108 @@ function buildInfoCard(text, { kind = "info" } = {}) {
   };
 }
 
+function resolveAgentMeta(backend) {
+  const normalized = String(backend || process.env.AGENT_BRIDGE_BACKEND || "codex").toLowerCase();
+  const known = {
+    codex: { name: "Codex", icon: "🤖" },
+    opencode: { name: "OpenCode", icon: "⚡" },
+    claude: { name: "Claude", icon: "🧠" },
+    chuang: { name: "Chuang", icon: "🛰️" },
+  };
+  return known[normalized] || { name: normalized || "未知", icon: "❓", unknown: true };
+}
+
+function buildAgentLine(backend) {
+  const meta = resolveAgentMeta(backend);
+  if (meta.unknown) {
+    return `**${meta.icon} 当前智能体**：未识别（标识：${escapeCardMarkdown(meta.name)}）\n仅支持 codex / opencode / claude / chuang`;
+  }
+  return `**${meta.icon} 当前智能体**：${meta.name} 桥`;
+}
+
+function buildWelcomeCard({
+  backend = "",
+  projectsRoot = "~/projects",
+  noticeText = "",
+} = {}) {
+  const elements = [];
+  if (typeof noticeText === "string" && noticeText.trim()) {
+    elements.push({
+      tag: "markdown",
+      content: `✅ ${escapeCardMarkdown(noticeText.trim())}`,
+      text_size: "notation",
+    });
+  }
+
+  elements.push(
+    { tag: "markdown", content: buildAgentLine(backend), text_size: "normal" },
+    {
+      tag: "markdown",
+      content: "绑定项目后即可开始对话，只需填写文件夹名：",
+      text_size: "notation",
+    },
+    {
+      tag: "form_container",
+      name: "bind_form",
+      elements: [
+        {
+          tag: "column_set",
+          flex_mode: "none",
+          columns: [
+            {
+              tag: "column",
+              width: "weighted",
+              weight: 2,
+              elements: [
+                {
+                  tag: "input",
+                  name: "project_name",
+                  placeholder: {
+                    tag: "plain_text",
+                    content: `文件夹名，自动补全为 ${projectsRoot}/…`,
+                  },
+                },
+              ],
+            },
+            {
+              tag: "column",
+              width: "weighted",
+              weight: 1,
+              elements: [
+                buildFormSubmitButton({
+                  name: "submit_bind",
+                  text: "🔗 绑定",
+                  value: { kind: "form", action: "bind_project" },
+                  type: "primary",
+                }),
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    {
+      tag: "markdown",
+      content: `📌 自动补全到 \`${escapeCardMarkdown(projectsRoot)}/文件夹名\`，也可输入绝对路径`,
+      text_size: "notation",
+    }
+  );
+
+  return {
+    schema: "2.0",
+    config: {
+      wide_screen_mode: true,
+      update_multi: true,
+      summary: { content: "👋 欢迎使用" },
+    },
+    header: {
+      title: { tag: "plain_text", content: "👋 欢迎使用飞书桥" },
+      template: "indigo",
+    },
+    body: { elements },
+  };
+}
+
 function buildStatusPanelCard({
   workspaceRoot,
   codexParams,
@@ -390,6 +492,8 @@ function buildStatusPanelCard({
   totalThreadCount,
   status,
   noticeText = "",
+  backend = "",
+  quickCommandOptions = [],
 }) {
   const isRunning = status?.code === "running";
   const currentThreadStatusText = status?.code === "running"
@@ -423,26 +527,13 @@ function buildStatusPanelCard({
   }
 
   elements.push({
-      tag: "column_set",
-      flex_mode: "none",
-      columns: [
-        {
-          tag: "column",
-          width: "weighted",
-          weight: 1,
-          vertical_align: "top",
-          elements: [
-            {
-              tag: "markdown",
-              content: [
-                `**当前项目**：\`${escapeCardMarkdown(workspaceRoot)}\``,
-              ].join(""),
-            },
-          ],
-        },
-      ],
-    }
-  );
+    tag: "markdown",
+    content: [
+      buildAgentLine(backend),
+      `**📁 当前项目**：\`${escapeCardMarkdown(workspaceRoot)}\``,
+    ].join("\n"),
+    text_size: "normal",
+  });
   elements.push({
     tag: "column_set",
     flex_mode: "none",
@@ -467,6 +558,16 @@ function buildStatusPanelCard({
       },
     ],
   });
+
+  const quickOptions = normalizeSelectOptions(quickCommandOptions);
+  if (quickOptions.length) {
+    elements.push({
+      tag: "select_static",
+      placeholder: { tag: "plain_text", content: "⚡ 快捷指令…" },
+      options: quickOptions,
+      value: buildPanelActionValue("quick_command"),
+    });
+  }
   elements.push({ tag: "hr" });
 
   if (threadRows.length) {
@@ -494,27 +595,15 @@ function buildStatusPanelCard({
   }
 
   const footerColumns = [];
-  if (shouldShowAllThreadsButton) {
-    footerColumns.push(buildFooterButtonColumn({
-      text: "全部线程",
-      value: buildPanelActionValue("open_threads"),
-    }));
-  }
   footerColumns.push(buildFooterButtonColumn({
-    text: "新建",
+    text: "➕ 新建线程",
     value: buildPanelActionValue("new_thread"),
+    type: "primary",
   }));
   footerColumns.push(buildFooterButtonColumn({
-    text: "状态",
-    value: buildPanelActionValue("status"),
+    text: "📋 全部线程",
+    value: buildPanelActionValue("open_threads"),
   }));
-  if (isRunning) {
-    footerColumns.push(buildFooterButtonColumn({
-      text: "停止",
-      value: buildPanelActionValue("stop"),
-      type: "danger",
-    }));
-  }
   if (footerColumns.length) {
     elements.push(
       { tag: "hr" },
@@ -1481,6 +1570,8 @@ module.exports = {
   buildThreadMessagesSummary,
   buildThreadPickerCard,
   buildWorkspaceBindingsCard,
+  buildWelcomeCard,
+  resolveAgentMeta,
   listBoundWorkspaces,
   buildAssistantReplyFooterElements,
   parseContextTextForProgress,

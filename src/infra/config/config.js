@@ -13,6 +13,8 @@ function readConfig() {
   return {
     mode,
     workspaceAllowlist: readListEnv("CODEX_IM_WORKSPACE_ALLOWLIST"),
+    defaultProjectsRoot: readTextEnv("CODEX_IM_PROJECTS_ROOT")
+      || path.join(os.homedir(), "projects"),
     codexEndpoint: process.env.CODEX_IM_CODEX_ENDPOINT || "",
     codexCommand: process.env.CODEX_IM_CODEX_COMMAND || "",
     codexAppServerProfile: readTextEnv("CODEX_IM_CODEX_APP_SERVER_PROFILE"),

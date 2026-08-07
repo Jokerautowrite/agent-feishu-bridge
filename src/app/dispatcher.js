@@ -26,9 +26,12 @@ async function onFeishuTextEvent(runtime, event) {
 
   const workspaceContext = await runtime.resolveWorkspaceContext(normalized, {
     replyToMessageId: normalized.messageId,
-    missingWorkspaceText: "当前会话还未绑定项目。先发送 `/bind /绝对路径`。",
+    missingWorkspaceText: "",
   });
   if (!workspaceContext) {
+    await runtime.sendWelcomeCard(runtime, normalized, {
+      replyToMessageId: normalized.messageId,
+    });
     return;
   }
   const { bindingKey, workspaceRoot } = workspaceContext;

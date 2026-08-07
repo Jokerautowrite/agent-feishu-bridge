@@ -83,6 +83,24 @@ agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
 - **正文段落间距**：`src/shared/assistant-markdown.js` 内 `\n{4,}` 归并规则
 - **底部分割线粗细**：`buildCardKitFooterDivider`（column_set 空内容细条）
 
+## 编排控制台（/where 控制台 + 首次引导卡）
+
+未绑定会话发普通消息时，桥会自动回一张「👋 欢迎」引导卡；
+绑定后发 `/where` 呼出完整控制台卡（当前智能体 / 项目 / 模型 /
+强度 / 快捷指令 / 线程操作）。
+
+相关可调参数：
+
+| 参数 | 说明 | 位置 |
+| --- | --- | --- |
+| `CODEX_IM_PROJECTS_ROOT` | 绑定文件夹名的自动补全根目录，默认 `~/projects` | `.env` / 环境变量 |
+| 快捷指令菜单项 | `showStatusPanel` 内 `quickCommandOptions` | `src/domain/workspace/workspace-service.js` |
+| 智能体标识 | `AGENT_BRIDGE_BACKEND`（codex/opencode/claude/chuang），控制台自动识别 | `.env` |
+| 欢迎卡结构 | `buildWelcomeCard`（绑定表单） | `src/presentation/card/builders.js` |
+
+绑定输入规则：`/bind /绝对路径` 照旧；`/bind 文件夹名` 自动补全为
+`${CODEX_IM_PROJECTS_ROOT}/文件夹名`；也支持欢迎卡表单直接绑定。
+
 ## 快速开始
 
 ```sh
