@@ -18,6 +18,21 @@ const {
 
 const CARDKIT_STREAMING_ELEMENT_ID = "streaming_content";
 
+const CARDKIT_CUSTOM_COLORS = {
+  "cus-progress-green": {
+    light_mode: "rgba(0,255,0,1)",
+    dark_mode: "rgba(0,255,0,1)",
+  },
+  "cus-progress-yellow": {
+    light_mode: "rgba(255,235,59,1)",
+    dark_mode: "rgba(255,235,59,1)",
+  },
+  "cus-progress-red": {
+    light_mode: "rgba(255,0,0,1)",
+    dark_mode: "rgba(255,0,0,1)",
+  },
+};
+
 async function sendInfoCardMessage(runtime, { chatId, text, replyToMessageId = "", replyInThread = false, kind = "info" }) {
   if (!chatId || !text) {
     return null;
@@ -548,9 +563,19 @@ function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
       streaming_mode: true,
       wide_screen_mode: true,
       update_multi: true,
+      style: {
+        color: CARDKIT_CUSTOM_COLORS,
+      },
       summary: {
         content: buildCardKitSummary(content, entry.state),
       },
+    },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: buildCardKitHeaderTitle(entry),
+      },
+      template: buildCardKitHeaderTemplate(entry),
     },
     body: {
       elements,
@@ -562,7 +587,7 @@ function buildCardKitFinalCard(runtime, entry) {
   const runKey = codexMessageUtils.buildRunKey(entry.threadId, entry.turnId);
   const display = buildAssistantDisplayContent(entry);
   const content = display.answer;
-  const footer = buildCardKitFooter(runtime, entry);
+  const footerElements = buildCardKitFooter(runtime, entry);
   const elements = [
     ...buildCardKitStatusPanels(runtime, runKey, entry),
     {
@@ -575,12 +600,8 @@ function buildCardKitFinalCard(runtime, entry) {
     },
   ];
 
-  if (footer) {
-    elements.push({
-      tag: "markdown",
-      content: footer,
-      text_size: "notation",
-    });
+  if (footerElements.length) {
+    elements.push(...footerElements);
   }
 
   return {
@@ -589,9 +610,19 @@ function buildCardKitFinalCard(runtime, entry) {
       streaming_mode: false,
       wide_screen_mode: true,
       update_multi: true,
+      style: {
+        color: CARDKIT_CUSTOM_COLORS,
+      },
       summary: {
         content: buildCardKitSummary(content, entry.state),
       },
+    },
+    header: {
+      title: {
+        tag: "plain_text",
+        content: buildCardKitHeaderTitle(entry),
+      },
+      template: buildCardKitHeaderTemplate(entry),
     },
     body: { elements },
   };
@@ -785,46 +816,100 @@ function resolveReplyCardEffort(runtime, entry) {
 }
 
 function buildCardKitFooter(runtime, entry) {
-  const parts = [];
-  if (entry.state === "failed") {
-    parts.push("未完成");
-  } else if (entry.state === "completed") {
-    parts.push("已完成");
-  } else {
-    parts.push("正在回复");
-  }
-
-  const elapsed = formatReplyElapsed(entry.startedAt);
-  if (elapsed) {
-    parts.push(`耗时 ${elapsed}`);
-  }
+  const elements = [];
+  const headline = [];
   const model = resolveReplyCardModel(runtime, entry);
   if (model) {
-    parts.push(model);
+    headline.push(`🧠 ${model}`);
   }
   const effort = resolveReplyCardEffort(runtime, entry);
   if (effort) {
-    parts.push(`强度 ${effort}`);
+    headline.push(`💪 强度 ${effort}`);
   }
-
-  const usageText = formatUsageText(runtime.latestTokenUsageByThreadId.get(entry.threadId));
-  if (usageText) {
-    parts.push(usageText);
+  const elapsed = formatReplyElapsed(entry.startedAt);
+  if (elapsed) {
+    headline.push(`⏳ 耗时 ${elapsed}`);
   }
+  elements.push({
+    tag: "markdown",
+    content: headline.join(" · "),
+    text_size: "notation",
+    margin: "4px 0px 0px 0px",
+  });
 
   const contextText = formatContextText(runtime.latestTokenUsageByThreadId.get(entry.threadId));
   if (contextText) {
-    parts.push(contextText);
+    const ctx = parseContextPercent(contextText);
+    if (ctx) {
+      elements.push({
+        tag: "markdown",
+        content: `📝 上下文 ${ctx.usedText}/${ctx.windowText} · ${buildNativeProgressBarText(ctx.pct)} (${ctx.pct}%)`,
+        text_size: "notation",
+        margin: "2px 0px 0px 0px",
+      });
+    } else {
+      elements.push({
+        tag: "markdown",
+        content: contextText,
+        text_size: "notation",
+        margin: "2px 0px 0px 0px",
+      });
+    }
   }
 
-  const toolCountText = formatToolCountText(runtime.toolItemIdsByRunKey.get(
-    codexMessageUtils.buildRunKey(entry.threadId, entry.turnId)
-  ));
-  if (toolCountText) {
-    parts.push(toolCountText);
-  }
+  return elements;
+}
 
-  return parts.join(" · ");
+function parseContextPercent(contextText) {
+  const text = String(contextText || "").trim();
+  const m = text.match(/^上下文\s+([0-9][0-9.,]*[kKmM]?)\/([0-9][0-9.,]*[kKmM]?)\s+\((\d+)%\)(?:\s*·\s*(.*))?$/);
+  if (!m) {
+    return null;
+  }
+  return {
+    usedText: m[1],
+    windowText: m[2],
+    pct: Math.max(0, Math.min(100, Number(m[3]) || 0)),
+    advisory: m[4] || "",
+  };
+}
+
+function buildEmojiProgressBar(pct, width = 5) {
+  const raw = Math.round((pct / 100) * width);
+  const filled = pct > 0 ? Math.max(1, Math.min(width, raw)) : 0;
+  const block = pct >= 90 ? "🟥" : pct >= 70 ? "🟧" : "🟩";
+  return block.repeat(filled) + "⬜".repeat(width - filled);
+}
+
+function buildNativeProgressBarText(pct, cells = 7) {
+  const safePct = Math.max(0, Math.min(100, Number(pct) || 0));
+  const filled = safePct > 0 ? Math.max(1, Math.round((safePct / 100) * cells)) : 0;
+  const color = safePct >= 90 ? "cus-progress-red" : safePct >= 70 ? "cus-progress-yellow" : "cus-progress-green";
+  const parts = [];
+  for (let i = 0; i < cells; i += 1) {
+    parts.push(`<font color='${i < filled ? color : "grey-200"}'>▊</font>`);
+  }
+  return parts.join(" ");
+}
+
+function buildCardKitHeaderTitle(entry) {
+  if (entry?.state === "failed") {
+    return "🔴 未完成";
+  }
+  if (entry?.state === "completed") {
+    return "✅ 已完成";
+  }
+  return "🟡 正在回复";
+}
+
+function buildCardKitHeaderTemplate(entry) {
+  if (entry?.state === "failed") {
+    return "red";
+  }
+  if (entry?.state === "completed") {
+    return "green";
+  }
+  return "blue";
 }
 
 function buildCardKitSummary(content, state) {

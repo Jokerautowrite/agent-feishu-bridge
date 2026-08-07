@@ -121,10 +121,11 @@ async function testReplyCardsUseCapturedRequestModel() {
   );
 
   const cardKitFooter = buildCardKitFooter(runtime, entry);
-  assert.match(cardKitFooter, /gpt-5\.6-sol/);
-  assert.match(cardKitFooter, /强度 xhigh/);
-  assert.doesNotMatch(cardKitFooter, /gpt-5\.5/);
-  assert.doesNotMatch(cardKitFooter, /强度 high/);
+  const footerText = cardKitFooter.map((el) => el.content || "").join("\n");
+  assert.match(footerText, /gpt-5\.6-sol/);
+  assert.match(footerText, /强度 xhigh/);
+  assert.doesNotMatch(footerText, /gpt-5\.5/);
+  assert.doesNotMatch(footerText, /强度 high/);
 
   const legacyCard = buildLegacyReplyCard(runtime, "thread-model:turn-model", entry);
   const legacyFooter = legacyCard.body.elements.at(-1)?.content || "";
@@ -312,7 +313,8 @@ async function testContextFooterWarnings() {
       totalTokens: 60000,
     },
   });
-  assert.match(buildCardKitFooter(runtime, entry), /上下文偏重/);
+  const footerText1 = buildCardKitFooter(runtime, entry).map((el) => el.content || "").join("\n");
+  assert.match(footerText1, /上下文偏重/);
 
   runtime.latestTokenUsageByThreadId.set(threadId, {
     modelContextWindow: 200000,
@@ -322,7 +324,8 @@ async function testContextFooterWarnings() {
       totalTokens: 90000,
     },
   });
-  assert.match(buildCardKitFooter(runtime, entry), /建议开新线程/);
+  const footerText2 = buildCardKitFooter(runtime, entry).map((el) => el.content || "").join("\n");
+  assert.match(footerText2, /建议开新线程/);
 }
 
 (async () => {
