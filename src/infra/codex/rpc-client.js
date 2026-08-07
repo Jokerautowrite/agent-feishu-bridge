@@ -77,7 +77,7 @@ class CodexRpcClient {
     if (!child) {
       const attempted = commandCandidates.join(", ");
       const detail = lastError?.message ? `: ${lastError.message}` : "";
-      throw new Error(`Unable to spawn Codex app-server. Tried ${attempted}${detail}. You can override with CODEX_IM_CODEX_COMMAND.`);
+      throw new Error(`Unable to spawn Codex app-server. Tried ${attempted}${detail}. You can override with AGENT_BRIDGE_CODEX_COMMAND.`);
     }
 
     this.child = child;
@@ -495,7 +495,9 @@ function logCodexParseFailure(rawMessage) {
 }
 
 function resolveDefaultCodexCommand(env = process.env) {
-  return normalizeNonEmptyString(env.CODEX_IM_CODEX_COMMAND) || DEFAULT_CODEX_COMMAND;
+  return normalizeNonEmptyString(env.AGENT_BRIDGE_CODEX_COMMAND)
+    || normalizeNonEmptyString(env.CODEX_IM_CODEX_COMMAND)
+    || DEFAULT_CODEX_COMMAND;
 }
 
 function buildCodexCommandCandidates(configuredCommand) {

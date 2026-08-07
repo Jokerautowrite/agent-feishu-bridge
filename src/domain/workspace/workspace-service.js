@@ -106,7 +106,7 @@ async function handleBindCommand(runtime, normalized) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "无法解析项目路径。支持绝对路径，或填写 `CODEX_IM_PROJECTS_ROOT` 下的文件夹名。",
+      text: "无法解析项目路径。支持绝对路径，或填写 `AGENT_BRIDGE_PROJECTS_ROOT` 下的文件夹名。",
     });
     return;
   }
@@ -114,7 +114,7 @@ async function handleBindCommand(runtime, normalized) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "只支持绝对路径绑定，或 `CODEX_IM_PROJECTS_ROOT` 下的文件夹名。",
+      text: "只支持绝对路径绑定，或 `AGENT_BRIDGE_PROJECTS_ROOT` 下的文件夹名。",
     });
     return;
   }
@@ -195,7 +195,7 @@ async function bindWorkspaceFromForm(runtime, normalized, projectName) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
-      text: "无法解析项目路径。请填写 `CODEX_IM_PROJECTS_ROOT` 下的文件夹名，或绝对路径。",
+      text: "无法解析项目路径。请填写 `AGENT_BRIDGE_PROJECTS_ROOT` 下的文件夹名，或绝对路径。",
     });
     return;
   }

@@ -152,14 +152,14 @@ class FeishuBotRuntime {
       throw new Error("FEISHU_APP_ID and FEISHU_APP_SECRET are required for feishu-bot mode");
     }
     if (!String(this.config.defaultCodexModel || "").trim()) {
-      throw new Error("CODEX_IM_DEFAULT_CODEX_MODEL is required");
+      throw new Error("AGENT_BRIDGE_DEFAULT_CODEX_MODEL is required");
     }
     if (!String(this.config.defaultCodexEffort || "").trim()) {
-      throw new Error("CODEX_IM_DEFAULT_CODEX_EFFORT is required");
+      throw new Error("AGENT_BRIDGE_DEFAULT_CODEX_EFFORT is required");
     }
     if (!String(this.config.defaultCodexAccessMode || "").trim()) {
       throw new Error(
-        "CODEX_IM_DEFAULT_CODEX_ACCESS_MODE is required and must be one of: default, full-access"
+        "AGENT_BRIDGE_DEFAULT_CODEX_ACCESS_MODE is required and must be one of: default, full-access"
       );
     }
   }
@@ -231,11 +231,11 @@ class FeishuBotRuntime {
     this.sessionStore.setAvailableModelCatalog(models);
     const validatedDefaults = workspaceRuntime.validateDefaultCodexParamsConfig(this, models);
     if (!validatedDefaults.model) {
-      throw new Error(`Invalid CODEX_IM_DEFAULT_CODEX_MODEL: ${this.config.defaultCodexModel}`);
+      throw new Error(`Invalid AGENT_BRIDGE_DEFAULT_CODEX_MODEL: ${this.config.defaultCodexModel}`);
     }
     if (!validatedDefaults.effort) {
       throw new Error(
-        `Invalid CODEX_IM_DEFAULT_CODEX_EFFORT: ${this.config.defaultCodexEffort} for model ${validatedDefaults.model}`
+        `Invalid AGENT_BRIDGE_DEFAULT_CODEX_EFFORT: ${this.config.defaultCodexEffort} for model ${validatedDefaults.model}`
       );
     }
     console.log(`[codex-im] model catalog refreshed at startup: ${models.length} entries`);
