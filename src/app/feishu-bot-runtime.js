@@ -4,7 +4,7 @@ const { SessionStore } = require("../infra/storage/session-store");
 // CHUANG_BRIDGE_BACKEND=chuang 走 Chuang app-server（Unix socket JSON-RPC）；
 // 否则原样走 Codex。
 const { CodexRpcClient } = process.env.OPENCODE_BRIDGE_BACKEND === "opencode"
-  ? require("../infra//rpc-client")
+  ? require("../infra/opencode/rpc-client")
   : process.env.CHUANG_BRIDGE_BACKEND === "chuang"
     ? require("../infra/chuang/rpc-client")
     : require("../infra/codex/rpc-client");const {
