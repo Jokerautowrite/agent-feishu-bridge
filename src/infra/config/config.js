@@ -36,7 +36,7 @@ function readConfig() {
       5 * 60 * 1000
     ),
     codexRpcTimeoutMs: readPositiveIntEnv("CODEX_IM_CODEX_RPC_TIMEOUT_MS", 45000),
-    codexTurnStartTimeoutMs: readPositiveIntEnv("CODEX_IM_CODEX_TURN_START_TIMEOUT_MS", 60000),
+    codexTurnStartTimeoutMs: readPositiveIntEnv("CODEX_IM_CODEX_TURN_START_TIMEOUT_MS", 300000),
     staleTurnTimeoutMs: readNonNegativeIntEnv(
       "CODEX_IM_STALE_TURN_TIMEOUT_MS",
       15 * 60 * 1000

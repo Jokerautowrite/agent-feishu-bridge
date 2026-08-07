@@ -31,7 +31,7 @@ const { randomUUID } = require("crypto");
 const DEFAULT_SERVER_URL = process.env.OPENCODE_SERVER_URL || "http://127.0.0.1:4096";
 const DEFAULT_AGENT = process.env.OPENCODE_AGENT || "build";
 // 首个事件的等待上限：超过就认定后端没起来，主动失败而不是让人干等
-const FIRST_EVENT_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_FIRST_EVENT_MS || 60000);
+const FIRST_EVENT_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_FIRST_EVENT_MS || 180000);
 // 单轮总时长上限
 const TURN_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_TURN_MS || 1200000);
 const MAX_TEXT_BUFFER = 102_400;
@@ -486,6 +486,13 @@ class OpencodeRpcClient {
     if (!run) return;
     const tid = sessionId;
     const turnId = run.turnId;
+
+    // 后端已有事件流入，说明会话活着：取消"首事件超时"，
+    // 防止回复正在流式输出时被 60s 定时器误杀（首事件可能因模型思考而延迟）。
+    if (run.firstTimer) {
+      clearTimeout(run.firstTimer);
+      run.firstTimer = null;
+    }
 
     const type = raw.type;
     switch (type) {
