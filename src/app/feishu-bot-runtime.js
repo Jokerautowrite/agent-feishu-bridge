@@ -2,12 +2,15 @@ const { readConfig } = require("../infra/config/config");
 const { SessionStore } = require("../infra/storage/session-store");
 // 后端可切：OPENCODE_BRIDGE_BACKEND=opencode 走 opencode serve；
 // CHUANG_BRIDGE_BACKEND=chuang 走 Chuang app-server（Unix socket JSON-RPC）；
+// CLAUDE_BRIDGE_BACKEND=claude 走 Claude Code（-p stream-json）；
 // 否则原样走 Codex。
 const { CodexRpcClient } = process.env.OPENCODE_BRIDGE_BACKEND === "opencode"
   ? require("../infra/opencode/rpc-client")
   : process.env.CHUANG_BRIDGE_BACKEND === "chuang"
     ? require("../infra/chuang/rpc-client")
-    : require("../infra/codex/rpc-client");const {
+    : process.env.CLAUDE_BRIDGE_BACKEND === "claude"
+      ? require("../infra/claude/rpc-client")
+      : require("../infra/codex/rpc-client");const {
   buildCardResponse,
   buildCardToast,
   buildEffortInfoText,
