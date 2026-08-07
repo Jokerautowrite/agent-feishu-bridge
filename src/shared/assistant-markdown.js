@@ -11,7 +11,7 @@ function sanitizeAssistantMarkdown(text, options = {}) {
     .replace(THINK_TAG_RE, "")
     .replace(DANGEROUS_HTML_TAG_RE, "")
     .replace(DANGEROUS_LINK_RE, "$1about:blank$3")
-    .replace(/\n{3,}/g, "\n\n");
+    .replace(/\n{4,}/g, "\n\n\n");
 
   if (!preserveHeadings) {
     normalized = normalized.replace(/^\s{0,3}#{1,6}\s+(.+)$/gm, (_, title) => `**${String(title).trim()}**`);
@@ -87,7 +87,7 @@ function optimizeCardKitMarkdown(text) {
     normalized = normalized.replace(`${marker}${index}___`, `\n\n${block}\n\n`);
   });
 
-  return normalized.replace(/\n{3,}/g, "\n\n").trim();
+  return normalized.replace(/\n{4,}/g, "\n\n\n").trim();
 }
 
 function downgradeHeadingsForCardKit(text) {

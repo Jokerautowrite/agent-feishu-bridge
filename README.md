@@ -52,6 +52,37 @@ agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
 - **图 1**：飞书对话与流式回复卡片
 - **图 2**：卡片详情——耗时、模型名、推理强度、上下文用量百分比、是否建议开新线程
 
+## 卡片外观参数（换肤指南）
+
+回复卡片的所有颜色集中在
+`src/presentation/card/card-service.js` 顶部 `CARDKIT_CUSTOM_COLORS`
+（代码里有完整注释）。改这里即可换肤，无需动其他逻辑。
+
+每个颜色都支持 `light_mode`（浅色主题）与 `dark_mode`（深色主题）
+两套值，格式为 `rgba(r,g,b,a)`，`a` 是透明度（0~1）。
+
+| 参数名 | 作用 | 变档逻辑 |
+| --- | --- | --- |
+| `cus-progress-green` | 进度条实心格（低占用） | 上下文 <70% |
+| `cus-progress-yellow` | 进度条实心格（中占用） | 上下文 70%~89% |
+| `cus-progress-red` | 进度条实心格（高占用） | 上下文 ≥90% |
+| `cus-line-green` | 底部细分割线（低占用） | 上下文 <70%，与进度条同逻辑 |
+| `cus-line-yellow` | 底部细分割线（中占用） | 上下文 70%~89% |
+| `cus-line-red` | 底部细分割线（高占用） | 上下文 ≥90% |
+| `cus-panel-green` | 🛠️ 执行耗时面板 描边+标题色 | 固定 |
+| `cus-panel-blue` | 💭 推理过程面板 描边+标题色 | 固定 |
+| `cus-body-bg` | 正文区淡底色 | 固定 |
+| `cus-foot-grey` | footer 模型/强度/耗时 灰字 | 固定 |
+
+其他可调参数：
+
+- **进度条格数**：`buildNativeProgressBarText(pct, cells=7)` 的 `cells`
+- **上下文变档阈值**：`buildNativeProgressBarText` 内 `safePct >= 90 / >= 70`
+- **header 状态色**：`buildCardKitHeaderTemplate`（streaming=indigo / completed=green / failed=red）
+- **工具面板行数上限**：`formatToolTraceText` 内 `clipLines(..., 2)`
+- **正文段落间距**：`src/shared/assistant-markdown.js` 内 `\n{4,}` 归并规则
+- **底部分割线粗细**：`buildCardKitFooterDivider`（column_set 空内容细条）
+
 ## 快速开始
 
 ```sh

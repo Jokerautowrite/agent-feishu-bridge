@@ -18,18 +18,72 @@ const {
 
 const CARDKIT_STREAMING_ELEMENT_ID = "streaming_content";
 
+/**
+ * 飞书回复卡片外观参数（改这里即可换肤，无需动其他代码）
+ *
+ * 所有颜色均支持 light_mode（浅色主题）与 dark_mode（深色主题）两套值，
+ * 格式为 rgba(r,g,b,a)，a 为透明度（0~1）。
+ *
+ * | 参数名 | 作用 | 阈值逻辑 |
+ * | --- | --- | --- |
+ * | cus-progress-green | 进度条实心格颜色（低占用） | 上下文 <70% |
+ * | cus-progress-yellow | 进度条实心格颜色（中占用） | 上下文 70%~89% |
+ * | cus-progress-red | 进度条实心格颜色（高占用） | 上下文 >=90% |
+ * | cus-line-green | 底部分割线颜色（低占用） | 上下文 <70%，与进度条同逻辑 |
+ * | cus-line-yellow | 底部分割线颜色（中占用） | 上下文 70%~89% |
+ * | cus-line-red | 底部分割线颜色（高占用） | 上下文 >=90% |
+ * | cus-panel-green | 🛠️ 执行耗时面板 描边+标题色 | 固定 |
+ * | cus-panel-blue | 💭 推理过程面板 描边+标题色 | 固定 |
+ * | cus-body-bg | 正文区淡底色（column_set background_style） | 固定 |
+ * | cus-foot-grey | footer 模型/强度/耗时 灰字 | 固定 |
+ *
+ * 其他可调参数：
+ * - 进度条格数：buildNativeProgressBarText(pct, cells=7) 的 cells
+ * - 上下文阈值：buildNativeProgressBarText 内 safePct >= 90 / >= 70
+ * - header 状态色：buildCardKitHeaderTemplate（streaming=indigo / completed=green / failed=red）
+ * - 工具面板行数上限：formatToolTraceText 内 clipLines(..., 2)
+ * - 正文段落间距：src/shared/assistant-markdown.js 内 \n{4,} 归并规则
+ */
 const CARDKIT_CUSTOM_COLORS = {
+  "cus-body-bg": {
+    light_mode: "rgba(64,120,255,0.05)",
+    dark_mode: "rgba(64,120,255,0.06)",
+  },
+  "cus-line-green": {
+    light_mode: "rgba(52,199,89,0.55)",
+    dark_mode: "rgba(52,199,89,0.55)",
+  },
+  "cus-line-yellow": {
+    light_mode: "rgba(245,217,10,0.55)",
+    dark_mode: "rgba(245,217,10,0.55)",
+  },
+  "cus-line-red": {
+    light_mode: "rgba(255,69,58,0.55)",
+    dark_mode: "rgba(255,69,58,0.55)",
+  },
+  "cus-panel-green": {
+    light_mode: "rgba(52,199,89,0.55)",
+    dark_mode: "rgba(52,199,89,0.55)",
+  },
+  "cus-panel-blue": {
+    light_mode: "rgba(84,140,255,0.55)",
+    dark_mode: "rgba(84,140,255,0.55)",
+  },
+  "cus-foot-grey": {
+    light_mode: "rgba(31,35,41,0.5)",
+    dark_mode: "rgba(255,255,255,0.45)",
+  },
   "cus-progress-green": {
-    light_mode: "rgba(0,255,0,1)",
-    dark_mode: "rgba(0,255,0,1)",
+    light_mode: "rgba(52,199,89,1)",
+    dark_mode: "rgba(52,199,89,1)",
   },
   "cus-progress-yellow": {
-    light_mode: "rgba(255,235,59,1)",
-    dark_mode: "rgba(255,235,59,1)",
+    light_mode: "rgba(245,217,10,1)",
+    dark_mode: "rgba(245,217,10,1)",
   },
   "cus-progress-red": {
-    light_mode: "rgba(255,0,0,1)",
-    dark_mode: "rgba(255,0,0,1)",
+    light_mode: "rgba(255,69,58,1)",
+    dark_mode: "rgba(255,69,58,1)",
   },
 };
 
@@ -547,14 +601,7 @@ function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
   const content = typeof options.content === "string" ? options.content : buildCardKitStreamingContent(entry);
   const elements = [
     ...buildCardKitStatusPanels(runtime, runKey, entry),
-    {
-      tag: "markdown",
-      content,
-      text_align: "left",
-      text_size: "normal_v2",
-      margin: "0px 0px 0px 0px",
-      element_id: CARDKIT_STREAMING_ELEMENT_ID,
-    },
+    buildCardKitBodyContainer(content, { elementId: CARDKIT_STREAMING_ELEMENT_ID }),
   ];
   if (entry.state === "streaming") {
     elements.push(buildCardKitStopButton(entry));
@@ -583,6 +630,57 @@ function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
     body: {
       elements,
     },
+  };
+}
+
+function buildCardKitBodyContainer(content, options = {}) {
+  const markdownElement = {
+    tag: "markdown",
+    content,
+    text_align: "left",
+    text_size: options.textSize || "normal_v2",
+    margin: "0px 0px 0px 0px",
+  };
+  if (options.elementId) {
+    markdownElement.element_id = options.elementId;
+  }
+  return {
+    tag: "column_set",
+    flex_mode: "none",
+    background_style: "cus-body-bg",
+    horizontal_spacing: "12px",
+    columns: [
+      {
+        tag: "column",
+        width: "weighted",
+        weight: 1,
+        elements: [markdownElement],
+      },
+    ],
+  };
+}
+
+function buildCardKitFooterDivider(pct) {
+  const safePct = Math.max(0, Math.min(100, Number(pct) || 0));
+  const color = safePct >= 90
+    ? "cus-line-red"
+    : safePct >= 70
+      ? "cus-line-yellow"
+      : "cus-line-green";
+  return {
+    tag: "column_set",
+    flex_mode: "none",
+    background_style: color,
+    horizontal_spacing: "0px",
+    columns: [
+      {
+        tag: "column",
+        width: "weighted",
+        weight: 1,
+        padding: "0px 0px 0px 0px",
+        elements: [{ tag: "markdown", content: "", margin: "0px 0px 0px 0px" }],
+      },
+    ],
   };
 }
 
@@ -620,17 +718,13 @@ function buildCardKitFinalCard(runtime, entry) {
   const footerElements = buildCardKitFooter(runtime, entry);
   const elements = [
     ...buildCardKitStatusPanels(runtime, runKey, entry),
-    {
-      tag: "markdown",
-      content,
-      text_align: "left",
-      text_size: "normal_v2",
-      margin: "0px 0px 0px 0px",
-      element_id: CARDKIT_STREAMING_ELEMENT_ID,
-    },
+    buildCardKitBodyContainer(content),
   ];
 
   if (footerElements.length) {
+    const contextText = formatContextText(runtime.latestTokenUsageByThreadId.get(entry.threadId));
+    const ctx = contextText ? parseContextPercent(contextText) : null;
+    elements.push(buildCardKitFooterDivider(ctx?.pct));
     elements.push(...footerElements);
   }
 
@@ -668,8 +762,8 @@ function buildCardKitStatusPanels(runtime, runKey, entry) {
     buildCardKitCollapsiblePanel({
       title: buildToolPanelTitle(runtime.toolItemIdsByRunKey.get(runKey), entry.state),
       content: formatToolTraceText(toolTrace, entry.state),
-      titleColor: "green",
-      borderColor: "green",
+      titleColor: "cus-panel-green",
+      borderColor: "cus-panel-green",
     }),
     buildCardKitCollapsiblePanel({
       title: entry.state === "streaming" ? "💭 推理过程（实时）" : "💭 推理过程（完成）",
@@ -680,8 +774,8 @@ function buildCardKitStatusPanels(runtime, runKey, entry) {
         tokenUsage,
         assistantNotes: display.notes,
       }),
-      titleColor: "blue",
-      borderColor: "blue",
+      titleColor: "cus-panel-blue",
+      borderColor: "cus-panel-blue",
       expanded: entry.state === "streaming",
     }),
   ];
@@ -866,7 +960,7 @@ function buildCardKitFooter(runtime, entry) {
   }
   elements.push({
     tag: "markdown",
-    content: headline.join(" · "),
+    content: `<font color='cus-foot-grey'>${headline.join(" · ")}</font>`,
     text_size: "notation",
     margin: "4px 0px 0px 0px",
   });
@@ -1193,7 +1287,7 @@ function formatToolTraceText(toolTrace, state) {
     }
     return "这轮还没走到明确的工具步骤。";
   }
-  return steps.map((step) => `- ${step}`).join("\n");
+  return clipLines(steps.map((step) => `● ${step}`).join("\n"), 2);
 }
 
 function formatThinkingText({
@@ -1244,6 +1338,14 @@ function formatThinkingText({
   }
 
   return sections.join("\n\n");
+}
+
+function clipLines(text, maxLines) {
+  const lines = String(text || "").split("\n");
+  if (lines.length <= maxLines) {
+    return text;
+  }
+  return `${lines.slice(0, maxLines).join("\n")}\n…`;
 }
 
 function normalizeReasoningTrace(trace) {
