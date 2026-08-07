@@ -10,7 +10,7 @@ const DEFAULT_CODEX_COMMAND = "codex";
 const WINDOWS_EXECUTABLE_SUFFIX_RE = /\.(cmd|exe|bat)$/i;
 const CODEX_CLIENT_INFO = {
   name: "codex_im_agent",
-  title: "Codex IM Agent",
+  title: "Agent Bridge",
   version: "0.2.0",
 };
 

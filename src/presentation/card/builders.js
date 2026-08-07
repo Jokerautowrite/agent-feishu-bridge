@@ -474,7 +474,7 @@ function buildWelcomeCard({
       summary: { content: "👋 欢迎使用" },
     },
     header: {
-      title: { tag: "plain_text", content: "👋 欢迎使用飞书桥" },
+      title: { tag: "plain_text", content: "👋 欢迎使用猫哥的飞书桥（Agent Bridge）" },
       template: "indigo",
     },
     body: { elements },
@@ -758,7 +758,7 @@ function buildHelpCardText() {
   ];
 
   return [
-    "**飞书桥使用说明**",
+    "**猫哥的飞书桥（Agent Bridge）使用说明**",
     sections.map((section) => section.join("\n")).join("\n\n"),
   ].join("\n\n");
 }
