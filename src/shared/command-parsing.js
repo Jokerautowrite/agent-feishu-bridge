@@ -1,4 +1,4 @@
-const COMMAND_PREFIXES = ["/codex ", "/opencode "];
+const COMMAND_PREFIXES = ["/codex ", "/claude ", "/opencode ", "/"];
 
 function extractBindPath(text) {
   return extractCommandArgument(text, "bind");

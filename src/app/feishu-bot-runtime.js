@@ -4,7 +4,7 @@ const { SessionStore } = require("../infra/storage/session-store");
 // CHUANG_BRIDGE_BACKEND=chuang 走 Chuang app-server（Unix socket JSON-RPC）；
 // 否则原样走 Codex。
 const { CodexRpcClient } = process.env.OPENCODE_BRIDGE_BACKEND === "opencode"
-  ? require("../infra/opencode/rpc-client")
+  ? require("../infra//rpc-client")
   : process.env.CHUANG_BRIDGE_BACKEND === "chuang"
     ? require("../infra/chuang/rpc-client")
     : require("../infra/codex/rpc-client");const {
@@ -275,7 +275,7 @@ class FeishuBotRuntime {
         await this.sendInfoCardMessage({
           chatId: context.chatId,
           replyToMessageId: context.messageId,
-          text: "检测到上一轮长时间未返回完成事件，已自动解除飞书端占用。现在可以继续发消息；如果上一个任务仍在终端侧运行，先发 `/opencode stop` 更稳。",
+          text: "检测到上一轮长时间未返回完成事件，已自动解除飞书端占用。现在可以继续发消息；如果上一个任务仍在终端侧运行，先发 `/stop` 更稳。",
         });
       } catch (error) {
         console.error(`[codex-im] failed to notify stale turn recovery: ${error.message}`);
@@ -457,7 +457,7 @@ class FeishuBotRuntime {
     if (this.activeTurnIdByThreadId.size > 0) {
       return {
         ok: false,
-        message: "当前还有任务在运行。先等完成，或发送 `/opencode stop` 后再切换运行档。",
+        message: "当前还有任务在运行。先等完成，或发送 `/stop` 后再切换运行档。",
       };
     }
 
@@ -498,7 +498,7 @@ class FeishuBotRuntime {
           `当前 Codex 运行档：${this.describeCodexAppServerProfile()}`,
           "",
           "用法：",
-          "`/opencode profile main`",
+          "`/profile main`",
           ...this.getExtensionProfileHelpLines(),
           "",
           `说明：该命令会重启飞书桥背后的 Codex app-server${this.getExtensionProfileNote()}。`,
@@ -544,7 +544,7 @@ class FeishuBotRuntime {
   }
 
   buildProfileUsageText() {
-    return ["`/opencode profile main`", ...this.getExtensionProfileHelpLines()].join(" 或 ");
+    return ["`/profile main`", ...this.getExtensionProfileHelpLines()].join(" 或 ");
   }
 
   buildProfileAliasListText() {

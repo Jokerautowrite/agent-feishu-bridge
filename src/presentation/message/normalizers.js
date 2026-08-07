@@ -419,8 +419,8 @@ function dedupeStrings(values) {
 function parseCommand(text) {
   const normalized = text.trim().toLowerCase();
 
-  // 命令前缀：/codex 兼容旧用户，/opencode 用于 opencode 后端
-  const COMMAND_PREFIXES = ["/codex", "/opencode"];
+  // 命令前缀：通用 / 前缀优先（/bind 等），兼容旧用户 /codex、/claude、/opencode
+  const COMMAND_PREFIXES = ["/codex", "/claude", "/opencode", "/"];
 
   const exactCommands = {
     stop: ["stop"],
@@ -483,11 +483,16 @@ function parseCommand(text) {
 }
 
 function matchesExactCommand(text, suffixes, prefix) {
-  return suffixes.some((suffix) => text === `${prefix} ${suffix}`);
+  return suffixes.some((suffix) => {
+    // 通用前缀 "/" 直接拼接（/approve），带名前缀需要空格（/codex approve）
+    const full = prefix === "/" ? `${prefix}${suffix}` : `${prefix} ${suffix}`;
+    return text === full;
+  });
 }
 
 function matchesPrefixCommand(text, command, prefix) {
-  return text.startsWith(`${prefix} ${command} `);
+  const full = prefix === "/" ? `${prefix}${command} ` : `${prefix} ${command} `;
+  return text.startsWith(full);
 }
 
 function extractCardChatId(data) {
