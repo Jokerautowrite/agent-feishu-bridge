@@ -1,16 +1,21 @@
 const { readConfig } = require("../infra/config/config");
 const { SessionStore } = require("../infra/storage/session-store");
-// 后端可切：OPENCODE_BRIDGE_BACKEND=opencode 走 opencode serve；
-// CHUANG_BRIDGE_BACKEND=chuang 走 Chuang app-server（Unix socket JSON-RPC）；
-// CLAUDE_BRIDGE_BACKEND=claude 走 Claude Code（-p stream-json）；
-// 否则原样走 Codex。
-const { CodexRpcClient } = process.env.OPENCODE_BRIDGE_BACKEND === "opencode"
+// 后端可切：AGENT_BRIDGE_BACKEND=codex|opencode|claude|chuang
+// 兼容旧变量：OPENCODE_BRIDGE_BACKEND / CHUANG_BRIDGE_BACKEND / CLAUDE_BRIDGE_BACKEND
+const AGENT_BRIDGE_BACKEND =
+  process.env.AGENT_BRIDGE_BACKEND
+  || process.env.OPENCODE_BRIDGE_BACKEND
+  || process.env.CHUANG_BRIDGE_BACKEND
+  || process.env.CLAUDE_BRIDGE_BACKEND
+  || "codex";
+const { CodexRpcClient } = AGENT_BRIDGE_BACKEND === "opencode"
   ? require("../infra/opencode/rpc-client")
-  : process.env.CHUANG_BRIDGE_BACKEND === "chuang"
+  : AGENT_BRIDGE_BACKEND === "chuang"
     ? require("../infra/chuang/rpc-client")
-    : process.env.CLAUDE_BRIDGE_BACKEND === "claude"
+    : AGENT_BRIDGE_BACKEND === "claude"
       ? require("../infra/claude/rpc-client")
-      : require("../infra/codex/rpc-client");const {
+      : require("../infra/codex/rpc-client");
+const {
   buildCardResponse,
   buildCardToast,
   buildEffortInfoText,
