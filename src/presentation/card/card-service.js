@@ -18,6 +18,39 @@ const {
 
 const CARDKIT_STREAMING_ELEMENT_ID = "streaming_content";
 const CARDKIT_BODY_MAX_BYTES = 16 * 1024;
+const CARD_ACTION_DEDUPE_WINDOW_MS = 2000;
+const cardActionLastSeen = new Map();
+
+function isDuplicateCardAction(action, normalized) {
+  const key = [
+    normalized?.chatId || "",
+    action?.kind || "",
+    action?.action || "",
+    action?.selectedValue
+      || action?.threadId
+      || action?.workspaceRoot
+      || action?.formValue?.project_name
+      || action?.requestId
+      || "",
+  ].join("|");
+  if (!key || key === "|||" || key === "||||") {
+    return false;
+  }
+  const now = Date.now();
+  const last = cardActionLastSeen.get(key) || 0;
+  if (now - last < CARD_ACTION_DEDUPE_WINDOW_MS) {
+    return true;
+  }
+  cardActionLastSeen.set(key, now);
+  if (cardActionLastSeen.size > 500) {
+    for (const [seenKey, seenAt] of cardActionLastSeen) {
+      if (now - seenAt > 10 * 1000) {
+        cardActionLastSeen.delete(seenKey);
+      }
+    }
+  }
+  return false;
+}
 
 /**
  * 长消息分片：把超长正文按段落切成多块（每块 <= maxBytes），
@@ -212,6 +245,12 @@ async function patchInteractiveCard(runtime, { messageId, card }) {
 
 async function handleCardAction(runtime, data) {
   const action = messageNormalizers.extractCardAction(data);
+  const senderAllowlist = Array.isArray(runtime.config?.cardActionSenderAllowlist)
+    ? runtime.config.cardActionSenderAllowlist
+    : [];
+  const operatorSenderId = messageNormalizers.extractCardOperatorSenderId
+    ? messageNormalizers.extractCardOperatorSenderId(data)
+    : String(data?.operator?.open_id || data?.operator?.user_id || "").trim();
   console.log(
     `[codex-im] card callback kind=${action?.kind || "-"} action=${action?.action || "-"} `
     + `thread=${action?.threadId || "-"} request=${action?.requestId || "-"} selected=${action?.selectedValue || "-"}`
@@ -222,6 +261,10 @@ async function handleCardAction(runtime, data) {
   }
 
   if (action.kind === "approval") {
+    if (senderAllowlist.length && !senderAllowlist.includes(operatorSenderId)) {
+      runCardActionTask(runtime, sendCardActionFeedback(runtime, data, "你没有审批该请求的权限。", "error"));
+      return buildCardResponse({});
+    }
     runCardActionTask(runtime, runtime.handleApprovalCardActionAsync(action, data));
     return buildCardResponse({});
   }
@@ -229,6 +272,22 @@ async function handleCardAction(runtime, data) {
   const normalized = messageNormalizers.normalizeCardActionContext(data, runtime.config);
   if (!normalized) {
     runCardActionTask(runtime, sendCardActionFeedback(runtime, data, "无法解析当前卡片上下文。", "error"));
+    return buildCardResponse({});
+  }
+
+  if (senderAllowlist.length && !senderAllowlist.includes(normalized.senderId)) {
+    runCardActionTask(
+      runtime,
+      sendCardActionFeedbackByContext(runtime, normalized, "你没有操作该卡片的权限。", "error")
+    );
+    return buildCardResponse({});
+  }
+
+  if (isDuplicateCardAction(action, normalized)) {
+    runCardActionTask(
+      runtime,
+      sendCardActionFeedbackByContext(runtime, normalized, "操作已处理，请勿重复点击。", "info")
+    );
     return buildCardResponse({});
   }
 
