@@ -556,6 +556,9 @@ function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
       element_id: CARDKIT_STREAMING_ELEMENT_ID,
     },
   ];
+  if (entry.state === "streaming") {
+    elements.push(buildCardKitStopButton(entry));
+  }
 
   return {
     schema: "2.0",
@@ -580,6 +583,33 @@ function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
     body: {
       elements,
     },
+  };
+}
+
+function buildCardKitStopButton(entry) {
+  return {
+    tag: "column_set",
+    flex_mode: "none",
+    columns: [
+      {
+        tag: "column",
+        width: "weighted",
+        weight: 1,
+        elements: [
+          {
+            tag: "button",
+            text: { tag: "plain_text", content: "🛑 停止" },
+            type: "danger",
+            value: {
+              kind: "panel",
+              action: "stop",
+              threadId: entry.threadId || "",
+              requestId: entry.turnId || "",
+            },
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -638,6 +668,8 @@ function buildCardKitStatusPanels(runtime, runKey, entry) {
     buildCardKitCollapsiblePanel({
       title: buildToolPanelTitle(runtime.toolItemIdsByRunKey.get(runKey), entry.state),
       content: formatToolTraceText(toolTrace, entry.state),
+      titleColor: "green",
+      borderColor: "green",
     }),
     buildCardKitCollapsiblePanel({
       title: entry.state === "streaming" ? "💭 推理过程（实时）" : "💭 推理过程（完成）",
@@ -648,19 +680,21 @@ function buildCardKitStatusPanels(runtime, runKey, entry) {
         tokenUsage,
         assistantNotes: display.notes,
       }),
+      titleColor: "blue",
+      borderColor: "blue",
       expanded: entry.state === "streaming",
     }),
   ];
 }
 
-function buildCardKitCollapsiblePanel({ title, content, expanded = false }) {
+function buildCardKitCollapsiblePanel({ title, content, expanded = false, titleColor, borderColor }) {
   return {
     tag: "collapsible_panel",
     expanded: Boolean(expanded),
     header: {
       title: {
-        tag: "plain_text",
-        content: title,
+        tag: titleColor ? "markdown" : "plain_text",
+        content: titleColor ? `<font color='${titleColor}'>${title}</font>` : title,
       },
       icon: {
         tag: "standard_icon",
@@ -670,7 +704,7 @@ function buildCardKitCollapsiblePanel({ title, content, expanded = false }) {
       icon_position: "follow_text",
       icon_expanded_angle: -180,
     },
-    border: { color: "grey", corner_radius: "5px" },
+    border: { color: borderColor || "grey", corner_radius: "5px" },
     padding: "8px 8px 8px 8px",
     elements: [
       {
@@ -909,7 +943,7 @@ function buildCardKitHeaderTemplate(entry) {
   if (entry?.state === "completed") {
     return "green";
   }
-  return "blue";
+  return "indigo";
 }
 
 function buildCardKitSummary(content, state) {
