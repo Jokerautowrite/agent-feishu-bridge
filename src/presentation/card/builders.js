@@ -165,8 +165,17 @@ function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "",
       : normalizedState === "failed"
         ? "我这次没把它收稳，所以先停在这里。"
         : "我已经把这次回复收好了。";
-  const footer = buildAssistantReplyFooter({
-    status: normalizedState === "failed" ? "未完成" : normalizedState === "completed" ? "已完成" : "正在回复",
+  const footerStatus =
+    normalizedState === "failed" ? "未完成"
+      : normalizedState === "completed" ? "已完成"
+        : "正在回复";
+  const footerStatusEmoji =
+    normalizedState === "failed" ? "🔴"
+      : normalizedState === "completed" ? "✅"
+        : "🟡";
+  const footerElements = buildAssistantReplyFooterElements({
+    status: footerStatus,
+    statusEmoji: footerStatusEmoji,
     elapsed,
     model,
     effort,
@@ -254,11 +263,7 @@ function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "",
             content: sanitizeAssistantMarkdown(content),
           },
         },
-        {
-          tag: "markdown",
-          content: footer,
-          text_size: "notation",
-        },
+        ...footerElements,
       ],
     },
   };
@@ -272,25 +277,79 @@ function buildAssistantReplyIntro(incomingText) {
   return `回复：${escapeCardMarkdown(clean.slice(0, 120))}`;
 }
 
-function buildAssistantReplyFooter({ status = "已完成", elapsed = "", model = "", effort = "", usageText = "", contextText = "", toolCountText = "" }) {
-  const parts = [status];
-  if (elapsed) {
-    parts.push(`耗时 ${escapeCardMarkdown(elapsed)}`);
+function buildAssistantReplyFooterElements({
+  status = "已完成",
+  statusEmoji = "✅",
+  elapsed = "",
+  model = "",
+  effort = "",
+  usageText = "",
+  contextText = "",
+  toolCountText = "",
+}) {
+  const elements = [];
+  const headline = [`${statusEmoji} ${escapeCardMarkdown(status)}`];
+  if (model) {
+    headline.push(escapeCardMarkdown(model));
   }
-  parts.push(model ? escapeCardMarkdown(model) : "Codex");
+  if (elapsed) {
+    headline.push(`耗时 ${escapeCardMarkdown(elapsed)}`);
+  }
   if (effort) {
-    parts.push(`强度 ${escapeCardMarkdown(effort)}`);
+    headline.push(`强度 ${escapeCardMarkdown(effort)}`);
+  }
+  elements.push({
+    tag: "div",
+    text: { tag: "lark_md", content: headline.join(" · ") },
+  });
+
+  const usage = [];
+  if (usageText) {
+    usage.push(escapeCardMarkdown(usageText));
   }
   if (toolCountText) {
-    parts.push(escapeCardMarkdown(toolCountText));
+    usage.push(escapeCardMarkdown(toolCountText));
   }
-  if (usageText) {
-    parts.push(escapeCardMarkdown(usageText));
+  if (usage.length) {
+    elements.push({
+      tag: "div",
+      text: { tag: "lark_md", content: usage.join(" · ") },
+    });
   }
-  if (contextText) {
-    parts.push(escapeCardMarkdown(contextText));
+
+  const ctx = parseContextTextForProgress(contextText);
+  if (ctx) {
+    elements.push({
+      tag: "progress",
+      mode: "default",
+      value: ctx.pct,
+      color: { tag: "color", color: ctx.pct >= 80 ? "red" : ctx.pct >= 50 ? "yellow" : "green" },
+      text: { tag: "plain_text", content: `${ctx.pct}%` },
+    });
+    const advisory = ctx.advisory ? ` · ${escapeCardMarkdown(ctx.advisory)}` : "";
+    elements.push({
+      tag: "div",
+      text: {
+        tag: "lark_md",
+        content: `上下文 ${ctx.usedText}/${ctx.windowText}${advisory}`,
+      },
+    });
   }
-  return parts.join(" · ");
+  return elements;
+}
+
+function parseContextTextForProgress(contextText) {
+  const text = String(contextText || "").trim();
+  const m = text.match(/^上下文\s+([0-9,.]+)\/([0-9,.]+)\s+\((\d+)%\)(?:\s*·\s*(.*))?$/);
+  if (!m) {
+    return null;
+  }
+  return {
+    usedText: m[1],
+    windowText: m[2],
+    pct: Math.max(0, Math.min(100, Number(m[3]) || 0)),
+    advisory: m[4] || "",
+  };
 }
 
 function buildInfoCard(text, { kind = "info" } = {}) {
@@ -1423,5 +1482,7 @@ module.exports = {
   buildThreadPickerCard,
   buildWorkspaceBindingsCard,
   listBoundWorkspaces,
+  buildAssistantReplyFooterElements,
+  parseContextTextForProgress,
   mergeReplyText,
 };
