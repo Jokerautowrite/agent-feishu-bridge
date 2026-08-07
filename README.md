@@ -1,6 +1,7 @@
-# agent-feishu-bridge
+# agent-bridge
 
-自家二开的飞书桥：把本机 Agent 接入飞书/Lark，流式卡片、推理展示、审批流。
+自研公用飞书桥：把本机任意 Agent 接入飞书/Lark，流式卡片、推理展示、审批流。
+作为 AgentHub 的公用服务插件，服务名统一 `agent-bridge-<agent>`，后端可拔插。
 
 [![License](https://img.shields.io/badge/license-猫哥自定义-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-green)](package.json)
@@ -10,14 +11,34 @@
 飞书消息 -> 本机 Agent 后端 -> 飞书回复（流式卡片）
 ```
 
-> 定位说明：本仓库 fork 自上游 `codex-feishu-bridge`，已做自有化改造。
-> 支持多后端，通过环境变量切换，卡片格式、推理展示、审批流一致：
+> 定位说明：本仓库 fork 自上游 `codex-feishu-bridge`，已做自有化改造，
+> 升级为多 Agent 公用桥（AgentHub 插件目录：`agent-hub/plugins/agent-bridge`）。
+> 支持多后端，通过统一环境变量 `AGENT_BRIDGE_BACKEND` 切换，
+> 卡片格式、推理展示、审批流一致：
 >
 > | 后端 | 切换 |
 > | --- | --- |
-> | Codex（默认） | 不设 `OPENCODE_BRIDGE_BACKEND` |
-> | Claude Code | `CLAUDE_BRIDGE_BACKEND=claude`（独立仓库维护） |
-> | Opencode | `OPENCODE_BRIDGE_BACKEND=opencode`，需 opencode serve 运行 |
+> | Codex（默认） | 不设 `AGENT_BRIDGE_BACKEND` |
+> | opencode | `AGENT_BRIDGE_BACKEND=opencode`，需 opencode serve 运行 |
+> | Claude Code | `AGENT_BRIDGE_BACKEND=claude`，走 `claude -p stream-json` |
+> | Chuang（创） | `AGENT_BRIDGE_BACKEND=chuang`，走 Chuang app-server Unix socket |
+
+> 兼容旧变量：`OPENCODE_BRIDGE_BACKEND` / `CHUANG_BRIDGE_BACKEND` / `CLAUDE_BRIDGE_BACKEND`
+> 仍可识别，新部署一律用 `AGENT_BRIDGE_BACKEND`。
+
+## 本机部署形态（AgentHub 规范）
+
+```text
+agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
+~/.config/agent-bridge/                 运行时配置（env + sessions，含密钥不进 git）
+~/.config/systemd/user/agent-bridge-<agent>.service   每 agent 一个桥服务
+```
+
+- 每个 agent 一个实例，互不干扰：`agent-bridge-codex` / `agent-bridge-opencode` /
+  `agent-bridge-claude` / `agent-bridge-chuang`。
+- 配置：`~/.config/agent-bridge/agent-bridge-<agent>.env`，后端统一
+  `AGENT_BRIDGE_BACKEND=<agent>`。
+- 本机接入别名：`~/.codex/codex-feishu-bridge-current`（软链接，指向代码本体，便于升级切换）。
 
 ## 效果预览
 
@@ -97,7 +118,7 @@ opencode serve --port 4096          # 先起 opencode serve
 `.env` 里设置：
 
 ```text
-OPENCODE_BRIDGE_BACKEND=opencode
+AGENT_BRIDGE_BACKEND=opencode
 OPENCODE_SERVER_URL=http://127.0.0.1:4096
 ```
 
