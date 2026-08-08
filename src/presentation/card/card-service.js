@@ -135,32 +135,32 @@ function splitLongText(text, maxBytes) {
  */
 const CARDKIT_CUSTOM_COLORS = {
   "cus-body-bg": {
-    light_mode: "rgba(64,120,255,0.05)",
-    dark_mode: "rgba(64,120,255,0.06)",
+    light_mode: "rgba(64,120,255,0.10)",
+    dark_mode: "rgba(64,120,255,0.12)",
   },
   "cus-line-green": {
-    light_mode: "rgba(52,199,89,0.55)",
-    dark_mode: "rgba(52,199,89,0.55)",
+    light_mode: "rgba(52,199,89,1)",
+    dark_mode: "rgba(52,199,89,1)",
   },
   "cus-line-yellow": {
-    light_mode: "rgba(245,217,10,0.55)",
-    dark_mode: "rgba(245,217,10,0.55)",
+    light_mode: "rgba(245,217,10,1)",
+    dark_mode: "rgba(245,217,10,1)",
   },
   "cus-line-red": {
-    light_mode: "rgba(255,69,58,0.55)",
-    dark_mode: "rgba(255,69,58,0.55)",
+    light_mode: "rgba(255,69,58,1)",
+    dark_mode: "rgba(255,69,58,1)",
   },
   "cus-panel-green": {
-    light_mode: "rgba(52,199,89,0.55)",
-    dark_mode: "rgba(52,199,89,0.55)",
+    light_mode: "rgba(52,199,89,1)",
+    dark_mode: "rgba(52,199,89,1)",
   },
   "cus-panel-blue": {
-    light_mode: "rgba(84,140,255,0.55)",
-    dark_mode: "rgba(84,140,255,0.55)",
+    light_mode: "rgba(84,140,255,1)",
+    dark_mode: "rgba(84,140,255,1)",
   },
   "cus-foot-grey": {
-    light_mode: "rgba(31,35,41,0.5)",
-    dark_mode: "rgba(255,255,255,0.45)",
+    light_mode: "rgba(31,35,41,0.85)",
+    dark_mode: "rgba(255,255,255,0.85)",
   },
   "cus-progress-green": {
     light_mode: "rgba(52,199,89,1)",
