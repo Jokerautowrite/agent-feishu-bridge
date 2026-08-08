@@ -9,6 +9,16 @@ async function handleStopCommand(runtime, normalized) {
   const threadId = workspaceRoot ? runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot) : null;
   const turnId = threadId ? runtime.activeTurnIdByThreadId.get(threadId) || null : null;
 
+  if (threadId && String(turnId || "").startsWith("custom-turn-")) {
+    runtime.cleanupThreadRuntimeState(threadId);
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: "自定义模型暂不支持主动中断，已清理飞书端运行状态；回复可能仍在后台继续生成。",
+    });
+    return;
+  }
+
   if (!threadId) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,

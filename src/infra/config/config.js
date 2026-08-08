@@ -81,6 +81,8 @@ function readConfig() {
     ),
     sessionsFile: readEnv("CODEX_IM_SESSIONS_FILE")
       || path.join(os.homedir(), ".codex-im", "sessions.json"),
+    customModelsFile: readEnv("CODEX_IM_CUSTOM_MODELS_FILE")
+      || path.join(os.homedir(), ".config", "agent-bridge", "custom-models.json"),
   };
 }
 

@@ -1,5 +1,6 @@
 const { readConfig } = require("../infra/config/config");
 const { SessionStore } = require("../infra/storage/session-store");
+const { CustomModelStore } = require("../infra/storage/custom-model-store");
 // 后端可切：AGENT_BRIDGE_BACKEND=codex|opencode|claude|chuang
 // 兼容旧变量：OPENCODE_BRIDGE_BACKEND / CHUANG_BRIDGE_BACKEND / CLAUDE_BRIDGE_BACKEND
 const AGENT_BRIDGE_BACKEND =
@@ -22,6 +23,7 @@ const {
   buildEffortListText,
   buildEffortValidationErrorText,
   buildHelpCardText,
+  buildCustomModelFormCard,
   buildModelInfoText,
   buildModelListText,
   buildModelValidationErrorText,
@@ -82,6 +84,10 @@ class FeishuBotRuntime {
   constructor(config = readConfig()) {
     this.config = config;
     this.sessionStore = new SessionStore({ filePath: config.sessionsFile });
+    this.customModelStore = new CustomModelStore({
+      filePath: config.customModelsFile,
+    });
+    this.customModelHistoryByThreadId = new Map();
     this.codex = new CodexRpcClient({
       endpoint: config.codexEndpoint,
       env: process.env,
@@ -643,6 +649,8 @@ function attachRuntimeForwarders() {
     handleRemoveCommand: workspaceRuntime.handleRemoveCommand,
     handleSendCommand: workspaceRuntime.handleSendCommand,
     handleModelCommand: workspaceRuntime.handleModelCommand,
+    showCustomModelFormCard: workspaceRuntime.showCustomModelFormCard,
+    saveCustomModelFromForm: workspaceRuntime.saveCustomModelFromForm,
     handleEffortCommand: workspaceRuntime.handleEffortCommand,
     refreshWorkspaceThreads: threadRuntime.refreshWorkspaceThreads,
     describeWorkspaceStatus: threadRuntime.describeWorkspaceStatus,

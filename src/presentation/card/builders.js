@@ -485,6 +485,7 @@ function buildStatusPanelCard({
   workspaceRoot,
   codexParams,
   modelOptions,
+  customModelNames = [],
   effortOptions,
   threadId,
   currentThread,
@@ -544,7 +545,7 @@ function buildStatusPanelCard({
         weight: 1,
         vertical_align: "top",
         elements: [
-          buildModelSelectElement(codexParams, modelOptions),
+          buildModelSelectElement(codexParams, modelOptions, customModelNames),
         ],
       },
       {
@@ -1194,16 +1195,37 @@ function buildFormSubmitButton({ name, text, value, type = "" }) {
   return button;
 }
 
-function buildModelSelectElement(codexParams, modelOptions) {
-  const options = normalizeSelectOptions(modelOptions);
-  if (!options.length) {
-    return {
-      tag: "markdown",
-      content: "暂无可用模型（等待启动同步或执行 `/model update`）",
-      text_size: "notation",
-    };
+const CUSTOM_MODEL_ADD_OPTION_VALUE = "__add_custom_model__";
+
+function buildModelSelectElement(codexParams, modelOptions, customModelNames = []) {
+  const normalizedCustomNames = Array.isArray(customModelNames)
+    ? customModelNames.map((name) => String(name || "").trim()).filter(Boolean)
+    : [];
+  const options = [];
+  const seen = new Set();
+  for (const option of normalizeSelectOptions(modelOptions)) {
+    const value = String(option.value || "").trim();
+    if (!value || seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    options.push(option);
+  }
+  for (const name of normalizedCustomNames) {
+    if (seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    options.push({ label: `✏️ ${name}`, value: name });
   }
   const selectedValue = String(codexParams?.model || "").trim();
+  if (selectedValue && !seen.has(selectedValue) && normalizedCustomNames.includes(selectedValue)) {
+    options.push({ label: `✏️ ${selectedValue}`, value: selectedValue });
+  }
+  options.push({
+    label: "✏️ 添加自定义模型",
+    value: CUSTOM_MODEL_ADD_OPTION_VALUE,
+  });
   const initialOption = findOptionByValue(options, selectedValue);
   return {
     tag: "select_static",
@@ -1214,6 +1236,73 @@ function buildModelSelectElement(codexParams, modelOptions) {
     options,
     initial_option: initialOption?.value || undefined,
     value: buildPanelActionValue("set_model"),
+  };
+}
+
+function buildCustomModelFormCard({ backend = "" } = {}) {
+  const elements = [];
+  elements.push({
+    tag: "markdown",
+    content: [
+      "添加一个新的模型通道：填写 API 地址、模型名和 API Key，",
+      "**测试通过后才会保存**，保存后可在模型下拉里直接切换使用。",
+    ].join(""),
+    text_size: "normal",
+  });
+  elements.push({
+    tag: "form_container",
+    name: "custom_model_form",
+    elements: [
+      {
+        tag: "input",
+        name: "model_base_url",
+        placeholder: {
+          tag: "plain_text",
+          content: "API 地址，如 https://5yuantoken.org/v1",
+        },
+      },
+      {
+        tag: "input",
+        name: "model_name",
+        placeholder: {
+          tag: "plain_text",
+          content: "模型名，如 deepseek-v4-flash",
+        },
+      },
+      {
+        tag: "input",
+        name: "model_api_key",
+        is_password: true,
+        placeholder: {
+          tag: "plain_text",
+          content: "API Key（不会显示在卡片和日志中）",
+        },
+      },
+      buildFormSubmitButton({
+        name: "submit_custom_model",
+        text: "🧪 测试并保存",
+        value: { kind: "form", action: "add_custom_model_save" },
+        type: "primary",
+      }),
+    ],
+  });
+  elements.push({
+    tag: "markdown",
+    content: "🔒 API Key 只会保存到本机配置文件（权限 600），不会出现在卡片、日志或代码仓库。",
+    text_size: "notation",
+  });
+  return {
+    schema: "2.0",
+    config: {
+      wide_screen_mode: true,
+      update_multi: true,
+      summary: { content: "✏️ 添加自定义模型" },
+    },
+    header: {
+      title: { tag: "plain_text", content: "✏️ 添加自定义模型" },
+      template: "indigo",
+    },
+    body: { elements },
   };
 }
 
@@ -1560,6 +1649,7 @@ module.exports = {
   buildModelListText,
   buildModelValidationErrorText,
   buildStatusPanelCard,
+  buildCustomModelFormCard,
   buildEffortInfoText,
   buildEffortListText,
   buildEffortValidationErrorText,

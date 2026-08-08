@@ -1,6 +1,9 @@
 const { filterThreadsByWorkspaceRoot } = require("../../shared/workspace-paths");
 const { extractSwitchThreadId } = require("../../shared/command-parsing");
 const codexMessageUtils = require("../../infra/codex/message-utils");
+const codexEvents = require("../../app/codex-event-service");
+const customModelService = require("../custom-model/custom-model-service");
+const directClient = require("../../infra/custom-model/direct-client");
 
 const THREAD_SOURCE_KINDS = new Set([
   "app",
@@ -15,6 +18,9 @@ const THREAD_SOURCE_KINDS = new Set([
   "subAgentOther",
   "unknown",
 ]);
+
+const MAX_CUSTOM_HISTORY_MESSAGES = 20;
+let customTurnSequence = 0;
 
 async function resolveWorkspaceThreadState(runtime, {
   bindingKey,
@@ -44,6 +50,16 @@ async function resolveWorkspaceThreadState(runtime, {
 
 async function ensureThreadAndSendMessage(runtime, { bindingKey, workspaceRoot, normalized, threadId }) {
   const codexParams = runtime.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
+  const customChannel = customModelService.getChannel(runtime, codexParams?.model);
+  if (customChannel) {
+    const localThreadId = await sendCustomModelReply(runtime, {
+      bindingKey,
+      workspaceRoot,
+      normalized,
+      channel: customChannel,
+    });
+    return localThreadId;
+  }
 
   if (!threadId) {
     const createdThreadId = await getOrCreateWorkspaceThread(runtime, {
@@ -107,6 +123,101 @@ async function ensureThreadAndSendMessage(runtime, { bindingKey, workspaceRoot, 
     runtime.setThreadBindingKey(recreatedThreadId, bindingKey);
     runtime.setThreadWorkspaceRoot(recreatedThreadId, workspaceRoot);
     return recreatedThreadId;
+  }
+}
+
+async function sendCustomModelReply(runtime, { bindingKey, workspaceRoot, normalized, channel }) {
+  const localThreadId = buildCustomModelThreadId(workspaceRoot);
+  runtime.setThreadBindingKey(localThreadId, bindingKey);
+  runtime.setThreadWorkspaceRoot(localThreadId, workspaceRoot);
+  runtime.setPendingThreadContext(localThreadId, normalized);
+
+  const history = getOrCreateCustomHistory(runtime, localThreadId);
+  const userText = String(normalized.text || "");
+  if (userText) {
+    history.push({ role: "user", content: userText });
+  }
+
+  customTurnSequence += 1;
+  const turnId = `custom-turn-${Date.now()}-${customTurnSequence}`;
+  codexEvents.handleCodexMessage(runtime, {
+    method: "turn/started",
+    params: { threadId: localThreadId, turnId },
+  });
+
+  let fullText = "";
+  const streamResult = await directClient.streamChatCompletion({
+    baseUrl: channel.baseUrl,
+    apiKey: channel.apiKey,
+    model: channel.name,
+    messages: history,
+    onDelta: (delta) => {
+      codexEvents.handleCodexMessage(runtime, {
+        method: "item/agentMessage/delta",
+        params: { threadId: localThreadId, turnId, delta },
+      });
+    },
+  });
+
+  fullText = streamResult.ok ? streamResult.text : String(streamResult.partialText || "");
+  if (fullText) {
+    codexEvents.handleCodexMessage(runtime, {
+      method: "item/completed",
+      params: {
+        threadId: localThreadId,
+        turnId,
+        item: { type: "agentMessage", text: fullText },
+      },
+    });
+  }
+
+  if (!streamResult.ok) {
+    codexEvents.handleCodexMessage(runtime, {
+      method: "turn/failed",
+      params: {
+        threadId: localThreadId,
+        turnId,
+        error: { message: streamResult.error || "自定义模型请求失败。" },
+      },
+    });
+    if (fullText) {
+      history.push({ role: "assistant", content: fullText });
+    }
+    trimCustomHistory(runtime, localThreadId);
+    return localThreadId;
+  }
+
+  codexEvents.handleCodexMessage(runtime, {
+    method: "turn/completed",
+    params: {
+      threadId: localThreadId,
+      turnId,
+      turn: { status: "completed" },
+    },
+  });
+  history.push({ role: "assistant", content: fullText });
+  trimCustomHistory(runtime, localThreadId);
+  return localThreadId;
+}
+
+function buildCustomModelThreadId(workspaceRoot) {
+  return `custom-${encodeURIComponent(workspaceRoot || "default")}`;
+}
+
+function getOrCreateCustomHistory(runtime, localThreadId) {
+  if (!runtime.customModelHistoryByThreadId.has(localThreadId)) {
+    runtime.customModelHistoryByThreadId.set(localThreadId, []);
+  }
+  return runtime.customModelHistoryByThreadId.get(localThreadId);
+}
+
+function trimCustomHistory(runtime, localThreadId) {
+  const history = runtime.customModelHistoryByThreadId.get(localThreadId);
+  if (Array.isArray(history) && history.length > MAX_CUSTOM_HISTORY_MESSAGES) {
+    runtime.customModelHistoryByThreadId.set(
+      localThreadId,
+      history.slice(history.length - MAX_CUSTOM_HISTORY_MESSAGES)
+    );
   }
 }
 

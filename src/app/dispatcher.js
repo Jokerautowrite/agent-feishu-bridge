@@ -79,6 +79,14 @@ async function onFeishuTextEvent(runtime, event) {
       });
       return;
     }
+    if (String(runtime.activeTurnIdByThreadId.get(threadId) || "").startsWith("custom-turn-")) {
+      await runtime.sendInfoCardMessage({
+        chatId: normalized.chatId,
+        replyToMessageId: normalized.messageId,
+        text: "自定义模型正在回答中，请等待完成后再发新消息。",
+      });
+      return;
+    }
     if (runtime.config.activeTurnFollowUpMode === "steer") {
       await steerActiveTurn(runtime, { threadId, normalized });
       return;
