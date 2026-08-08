@@ -1203,6 +1203,12 @@ function buildModelSelectElement(codexParams, modelOptions, customModelNames = [
     : [];
   const rawOptions = [];
   const seen = new Set();
+  // 「✏️ 添加自定义模型」放在最前面，保证入口显眼且不被任何截断逻辑隐藏。
+  rawOptions.push({
+    label: "✏️ 添加自定义模型",
+    value: CUSTOM_MODEL_ADD_OPTION_VALUE,
+  });
+  seen.add(CUSTOM_MODEL_ADD_OPTION_VALUE);
   for (const option of Array.isArray(modelOptions) ? modelOptions : []) {
     const label = String(option?.label || option?.value || "").trim();
     const value = String(option.value || "").trim();
@@ -1223,10 +1229,6 @@ function buildModelSelectElement(codexParams, modelOptions, customModelNames = [
   if (selectedValue && !seen.has(selectedValue) && normalizedCustomNames.includes(selectedValue)) {
     rawOptions.push({ label: `✏️ ${selectedValue}`, value: selectedValue });
   }
-  rawOptions.push({
-    label: "✏️ 添加自定义模型",
-    value: CUSTOM_MODEL_ADD_OPTION_VALUE,
-  });
   const options = normalizeSelectOptions(rawOptions);
   const initialOption = findOptionByValue(options, selectedValue);
   return {

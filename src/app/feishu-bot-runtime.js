@@ -104,6 +104,7 @@ class FeishuBotRuntime {
     this.feishuAdapter = null;
     this.pendingChatContextByThreadId = new Map();
     this.pendingChatContextByBindingKey = new Map();
+    this.chatTypeByChatId = new Map();
     this.activeTurnIdByThreadId = new Map();
     this.activeTurnStartedAtByThreadId = new Map();
     this.turnSteerQueueByThreadId = new Map();
@@ -695,6 +696,20 @@ function attachRuntimeForwarders() {
 
   proto.getCodexParamsForWorkspace = function getCodexParamsForWorkspace(bindingKey, workspaceRoot) {
     return this.sessionStore.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
+  };
+
+  proto.setChatType = function setChatType(chatId, chatType) {
+    const normalizedChatId = typeof chatId === "string" ? chatId.trim() : "";
+    const normalizedChatType = typeof chatType === "string" ? chatType.trim().toLowerCase() : "";
+    if (!normalizedChatId || !normalizedChatType) {
+      return;
+    }
+    this.chatTypeByChatId.set(normalizedChatId, normalizedChatType);
+  };
+
+  proto.resolveChatType = function resolveChatType(chatId) {
+    const normalizedChatId = typeof chatId === "string" ? chatId.trim() : "";
+    return normalizedChatId ? String(this.chatTypeByChatId.get(normalizedChatId) || "") : "";
   };
 }
 

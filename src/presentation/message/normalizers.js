@@ -27,6 +27,7 @@ function normalizeFeishuTextEvent(event, config) {
     chatId: message.chat_id || "",
     threadKey: message.root_id || "",
     senderId: sender?.sender_id?.open_id || sender?.sender_id?.user_id || "",
+    chatType: normalizeIdentifier(message.chat_type),
     messageId: message.message_id || "",
     text,
     command: parseCommand(text),

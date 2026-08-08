@@ -8,6 +8,9 @@ async function onFeishuTextEvent(runtime, event) {
   if (!normalized) {
     return;
   }
+  if (normalized.chatType && normalized.chatId) {
+    runtime.setChatType(normalized.chatId, normalized.chatType);
+  }
   if (normalized.command === "unsupported_message") {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,

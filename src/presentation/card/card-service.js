@@ -251,8 +251,14 @@ async function handleCardAction(runtime, data) {
   const operatorSenderIds = messageNormalizers.extractCardOperatorSenderIds
     ? messageNormalizers.extractCardOperatorSenderIds(data)
     : [];
+  const chatId = messageNormalizers.extractCardChatId
+    ? messageNormalizers.extractCardChatId(data)
+    : "";
+  const chatType = typeof runtime.resolveChatType === "function"
+    ? runtime.resolveChatType(chatId)
+    : "";
   const isAllowedOperator = !senderAllowlist.length
-    || operatorSenderIds.some((id) => senderAllowlist.includes(id));
+    || isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType);
   console.log(
     `[codex-im] card callback kind=${action?.kind || "-"} action=${action?.action || "-"} `
     + `thread=${action?.threadId || "-"} request=${action?.requestId || "-"} selected=${action?.selectedValue || "-"}`
@@ -316,6 +322,20 @@ async function handleCardAction(runtime, data) {
 
   runCardActionTask(runtime, sendCardActionFeedbackByContext(runtime, normalized, "未支持的卡片操作。", "error"));
   return buildCardResponse({});
+}
+
+function isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType) {
+  const [openId = "", userId = ""] = operatorSenderIds;
+  // 私聊：open_id 随会话变化不可靠，只校验稳定的 user_id。
+  if (chatType === "p2p") {
+    return Boolean(userId && senderAllowlist.includes(userId));
+  }
+  // 群聊：user_id 或 open_id 任一命中即可。
+  if (chatType === "group") {
+    return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
+  }
+  // 未知会话类型：任一命中即可（宽松，避免误锁用户）。
+  return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
 }
 
 function queueCardActionWithFeedback(runtime, normalized, feedbackText, task) {
