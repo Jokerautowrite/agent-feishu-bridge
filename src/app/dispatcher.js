@@ -218,6 +218,8 @@ async function applyGroupMentionPolicy(runtime, normalized) {
     return null;
   }
   normalized.text = stripped;
+  // 标记这条消息是 @ 机器人的，避免模型收到去掉 @ 前缀后的文本时误判“是不是在叫我”。
+  normalized.mentionedBot = true;
   normalized.command = messageNormalizers.parseCommand(stripped);
   return normalized;
 }

@@ -461,8 +461,10 @@ function buildMessageWithBridgeCapabilities(normalized) {
   const identityBlock = isGroup
     ? buildGroupSenderIdentity(senderName, senderId)
     : "";
+  // 群聊里 @ 过机器人的消息，去掉 @ 前缀后仍要保留“被 @”标记，防止模型误判该不该回复。
+  const mentionMarker = isGroup && normalized?.mentionedBot ? "（@了我）" : "";
   const body = identityBlock
-    ? `${identityBlock}${text}`
+    ? `${identityBlock}${mentionMarker}${text}`
     : text;
 
   return [
@@ -491,7 +493,8 @@ function buildGroupSenderIdentityForCustom(normalized, text) {
   const senderName = String(normalized?.senderName || "").trim();
   const senderId = String(normalized?.senderId || "").trim();
   const prefix = buildGroupSenderIdentity(senderName, senderId);
-  return `${prefix}${String(text || "")}`;
+  const mentionMarker = normalized?.mentionedBot ? "（@了我）" : "";
+  return `${prefix}${mentionMarker}${String(text || "")}`;
 }
 
 module.exports = {
