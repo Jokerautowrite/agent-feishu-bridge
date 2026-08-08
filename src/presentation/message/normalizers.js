@@ -536,6 +536,15 @@ function extractCardOperatorSenderId(data) {
   return normalizeIdentifier(data?.operator?.open_id || data?.operator?.user_id);
 }
 
+function extractCardOperatorSenderIds(data) {
+  const openId = normalizeIdentifier(data?.operator?.open_id);
+  const userId = normalizeIdentifier(data?.operator?.user_id);
+  const ids = [];
+  if (openId) ids.push(openId);
+  if (userId && userId !== openId) ids.push(userId);
+  return ids;
+}
+
 function normalizeNumber(value) {
   const number = Number(value || 0);
   return Number.isFinite(number) && number > 0 ? number : 0;
@@ -544,6 +553,7 @@ function normalizeNumber(value) {
 module.exports = {
   extractCardAction,
   extractCardOperatorSenderId,
+  extractCardOperatorSenderIds,
   mapCodexMessageToImEvent,
   normalizeCardActionContext,
   normalizeFeishuTextEvent,

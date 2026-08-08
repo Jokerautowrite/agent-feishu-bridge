@@ -248,9 +248,11 @@ async function handleCardAction(runtime, data) {
   const senderAllowlist = Array.isArray(runtime.config?.cardActionSenderAllowlist)
     ? runtime.config.cardActionSenderAllowlist
     : [];
-  const operatorSenderId = messageNormalizers.extractCardOperatorSenderId
-    ? messageNormalizers.extractCardOperatorSenderId(data)
-    : String(data?.operator?.open_id || data?.operator?.user_id || "").trim();
+  const operatorSenderIds = messageNormalizers.extractCardOperatorSenderIds
+    ? messageNormalizers.extractCardOperatorSenderIds(data)
+    : [];
+  const isAllowedOperator = !senderAllowlist.length
+    || operatorSenderIds.some((id) => senderAllowlist.includes(id));
   console.log(
     `[codex-im] card callback kind=${action?.kind || "-"} action=${action?.action || "-"} `
     + `thread=${action?.threadId || "-"} request=${action?.requestId || "-"} selected=${action?.selectedValue || "-"}`
@@ -261,7 +263,10 @@ async function handleCardAction(runtime, data) {
   }
 
   if (action.kind === "approval") {
-    if (senderAllowlist.length && !senderAllowlist.includes(operatorSenderId)) {
+    if (!isAllowedOperator) {
+      console.warn("[codex-im] card approval rejected by sender allowlist", {
+        operatorIds: operatorSenderIds,
+      });
       runCardActionTask(runtime, sendCardActionFeedback(runtime, data, "你没有审批该请求的权限。", "error"));
       return buildCardResponse({});
     }
@@ -275,7 +280,12 @@ async function handleCardAction(runtime, data) {
     return buildCardResponse({});
   }
 
-  if (senderAllowlist.length && !senderAllowlist.includes(normalized.senderId)) {
+  if (!isAllowedOperator) {
+    console.warn("[codex-im] card action rejected by sender allowlist", {
+      operatorIds: operatorSenderIds,
+      actionKind: action.kind,
+      actionName: action.action || "",
+    });
     runCardActionTask(
       runtime,
       sendCardActionFeedbackByContext(runtime, normalized, "你没有操作该卡片的权限。", "error")
