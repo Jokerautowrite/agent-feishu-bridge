@@ -364,6 +364,13 @@ async function checkGroupCommandAuthorization(runtime, normalized) {
     return true;
   }
 
+  const superAdmins = Array.isArray(runtime.config?.superAdminOpenIds)
+    ? runtime.config.superAdminOpenIds
+    : [];
+  if (superAdmins.includes(senderId)) {
+    return true;
+  }
+
   console.log(
     `[codex-im] group command rejected (not admin): chat=${normalized.chatId} sender=${senderId.slice(0, 8)}... command=${command}`
   );
