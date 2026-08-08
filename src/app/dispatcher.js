@@ -32,8 +32,14 @@ async function onFeishuTextEvent(runtime, event) {
   const hasAttachmentPayload = normalized.command === "image_message"
     || normalized.command === "attachment_message"
     || (Array.isArray(normalized.attachments) && normalized.attachments.length > 0);
-  if (!hasAttachmentPayload && await runtime.dispatchTextCommand(normalized)) {
-    return;
+  if (!hasAttachmentPayload) {
+    const commandAllowed = await checkGroupCommandAuthorization(runtime, normalized);
+    if (!commandAllowed) {
+      return;
+    }
+    if (await runtime.dispatchTextCommand(normalized)) {
+      return;
+    }
   }
 
   const workspaceContext = await runtime.resolveWorkspaceContext(normalized, {
@@ -211,6 +217,48 @@ async function applyGroupMentionPolicy(runtime, normalized) {
   return normalized;
 }
 
+/**
+ * 群聊命令授权：普通消息人人可发；命令只有管理员能执行。
+ *
+ * 管理员来源：
+ * 1. 谁把机器人拉进群，谁就是该群管理员（im.chat.member.bot.added_v1 记录）
+ * 2. 可选全局配置 AGENT_BRIDGE_ADMIN_OPEN_IDS（逗号分隔，兜底）
+ *
+ * 私聊不限制（私聊=管理员本人）。
+ * 群聊非管理员发命令 → 静默忽略（防刷屏，不回复任何提示）。
+ */
+async function checkGroupCommandAuthorization(runtime, normalized) {
+  const command = normalized.command;
+  const isCommand = Boolean(command) && command !== "message" && command !== "";
+  if (!isCommand) {
+    return true;
+  }
+  if (normalized.chatType !== "group") {
+    return true;
+  }
+
+  const senderId = String(normalized.senderId || "").trim();
+  if (!senderId) {
+    return false;
+  }
+
+  if (runtime.groupAdmins && runtime.groupAdmins.isAdmin(normalized.chatId, senderId)) {
+    return true;
+  }
+
+  const configAdmins = Array.isArray(runtime.config?.adminOpenIds)
+    ? runtime.config.adminOpenIds
+    : [];
+  if (configAdmins.includes(senderId)) {
+    return true;
+  }
+
+  console.log(
+    `[codex-im] group command rejected (not admin): chat=${normalized.chatId} sender=${senderId.slice(0, 8)}... command=${command}`
+  );
+  return false;
+}
+
 async function steerActiveTurn(runtime, { threadId, normalized }) {
   const expectedTurnId = String(runtime.activeTurnIdByThreadId.get(threadId) || "").trim();
   if (!expectedTurnId) {
@@ -329,6 +377,7 @@ function onCodexMessage(runtime, message) {
 
 module.exports = {
   applyGroupMentionPolicy,
+  checkGroupCommandAuthorization,
   enrichGroupSenderIdentity,
   onCodexMessage,
   onFeishuCardAction,

@@ -25,6 +25,7 @@ class SessionStore {
           ...parsed,
           bindings: parsed.bindings || {},
           approvalCommandAllowlistByWorkspaceRoot: parsed.approvalCommandAllowlistByWorkspaceRoot || {},
+          groupAdmins: parsed.groupAdmins || {},
           availableModelCatalog: parsed.availableModelCatalog || {
             models: [],
             updatedAt: "",
@@ -38,6 +39,15 @@ class SessionStore {
 
   save() {
     fs.writeFileSync(this.filePath, JSON.stringify(this.state, null, 2));
+  }
+
+  getGroupAdmins() {
+    return this.state.groupAdmins || {};
+  }
+
+  setGroupAdmins(groupAdmins) {
+    this.state.groupAdmins = groupAdmins || {};
+    this.save();
   }
 
   getBinding(bindingKey) {
@@ -295,6 +305,7 @@ function createEmptyState() {
   return {
     bindings: {},
     approvalCommandAllowlistByWorkspaceRoot: {},
+    groupAdmins: {},
     availableModelCatalog: {
       models: [],
       updatedAt: "",

@@ -63,6 +63,7 @@ const runtimeState = require("../domain/session/binding-context");
 const threadRuntime = require("../domain/thread/thread-service");
 const workspaceRuntime = require("../domain/workspace/workspace-service");
 const memberNameCache = require("../domain/group/member-name-cache");
+const groupAdminStore = require("../domain/group/group-admin-store");
 const runtimeExtensions = require("./runtime-extensions");
 const eventsRuntime = require("./codex-event-service");
 const approvalPolicyRuntime = require("../domain/approval/approval-policy");
@@ -104,6 +105,9 @@ class FeishuBotRuntime {
     this.wsClient = null;
     this.feishuAdapter = null;
     this.memberNameCache = memberNameCache.createMemberNameCache();
+    this.groupAdmins = groupAdminStore.createGroupAdminStore({
+      persist: (snapshot) => this.sessionStore.setGroupAdmins(snapshot),
+    });
     this.pendingChatContextByThreadId = new Map();
     this.pendingChatContextByBindingKey = new Map();
     this.chatTypeByChatId = new Map();
@@ -148,6 +152,7 @@ class FeishuBotRuntime {
     this.initializeFeishuSdk();
     await this.codex.connect();
     await this.codex.initialize();
+    this.groupAdmins.loadFromSnapshot(this.sessionStore.getGroupAdmins());
     // opencode 后端：SSE 订阅由 connect() 内自动建立（serve 根目录），
     // bind 到其他目录时适配器会按需补订阅。无需在此额外启动。
     await this.refreshAvailableModelCatalogAtStartup();
@@ -225,6 +230,17 @@ class FeishuBotRuntime {
         });
       },
       "card.action.trigger": async (data) => appDispatcher.onFeishuCardAction(this, data),
+      "im.chat.member.bot.added_v1": async (data) => {
+        const chatId = String(data?.chat_id || "").trim();
+        const operatorOpenId = String(data?.operator_id?.open_id || "").trim();
+        if (!chatId || !operatorOpenId) {
+          return;
+        }
+        console.log(
+          `[codex-im] bot added to group chat=${chatId} by operator=${operatorOpenId.slice(0, 8)}...`
+        );
+        await this.groupAdmins.addAdmin(chatId, operatorOpenId);
+      },
     });
 
     this.wsClient.start({ eventDispatcher });

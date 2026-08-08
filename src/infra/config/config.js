@@ -42,6 +42,7 @@ function readConfig() {
       || path.join(os.homedir(), "projects"),
     cardActionSenderAllowlist: readListEnv(readCompatEnv("CODEX_IM_CARD_ACTION_SENDER_ALLOWLIST")),
     botOpenId: readEnv("CODEX_IM_BOT_OPEN_ID"),
+    adminOpenIds: readListEnv(readCompatEnv("CODEX_IM_ADMIN_OPEN_IDS")),
     groupMentionOnly: readBooleanEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_ONLY"), true),
     groupMentionExemptChats: readListEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_EXEMPT_CHATS")),
     codexEndpoint: readEnv("CODEX_IM_CODEX_ENDPOINT"),
