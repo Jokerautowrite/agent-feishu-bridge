@@ -929,6 +929,12 @@ function buildCardKitStatusPanels(runtime, runKey, entry) {
   const elapsed = formatReplyElapsed(entry.startedAt);
   const tokenUsage = runtime.latestTokenUsageByThreadId.get(entry.threadId);
   const display = buildAssistantDisplayContent(entry);
+  const chatType = typeof runtime.resolveChatType === "function"
+    ? runtime.resolveChatType(entry?.chatId)
+    : "";
+  const reasoningMode = chatType === "group"
+    ? resolveGroupCardReasoningMode(runtime?.config)
+    : "full";
   return [
     buildCardKitCollapsiblePanel({
       title: buildToolPanelTitle(runtime.toolItemIdsByRunKey.get(runKey), entry.state),
@@ -936,20 +942,71 @@ function buildCardKitStatusPanels(runtime, runKey, entry) {
       titleColor: "cus-panel-green",
       borderColor: "cus-panel-green",
     }),
-    buildCardKitCollapsiblePanel({
-      title: entry.state === "streaming" ? "💭 推理过程（实时）" : "💭 推理过程（完成）",
-      content: formatThinkingText({
-        state: entry.state,
-        elapsed,
-        reasoningTrace,
-        tokenUsage,
-        assistantNotes: display.notes,
-      }),
-      titleColor: "cus-panel-blue",
-      borderColor: "cus-panel-blue",
-      expanded: entry.state === "streaming",
+    buildGroupReasoningPanel(runtime, entry, {
+      reasoningTrace,
+      elapsed,
+      tokenUsage,
+      assistantNotes: display.notes,
+      reasoningMode,
     }),
   ];
+}
+
+/**
+ * 推理面板：私聊显示完整推理（full）；群聊按配置收敛——
+ * none（默认，方案 B）：不显示推理内容，只显示“正在推理…/推理完成”状态，且不展开。
+ * brief（方案 A）：只显示推理摘要前 2 行，且不展开。
+ */
+function buildGroupReasoningPanel(runtime, entry, {
+  reasoningTrace,
+  elapsed,
+  tokenUsage,
+  assistantNotes,
+  reasoningMode,
+}) {
+  const isStreaming = entry.state === "streaming";
+  if (reasoningMode === "none") {
+    return buildCardKitCollapsiblePanel({
+      title: isStreaming ? "💭 正在推理…" : "💭 推理完成",
+      content: isStreaming
+        ? (elapsed ? `正在处理，已运行约 ${elapsed}。` : "正在处理。")
+        : (elapsed ? `已完成，耗时约 ${elapsed}；最终结论见下方正文。` : "已完成；最终结论见下方正文。"),
+      titleColor: "cus-panel-blue",
+      borderColor: "cus-panel-blue",
+      expanded: false,
+    });
+  }
+
+  const fullText = formatThinkingText({
+    state: entry.state,
+    elapsed,
+    reasoningTrace,
+    tokenUsage,
+    assistantNotes,
+  });
+  if (reasoningMode === "brief") {
+    const briefText = fullText.split("\n").slice(0, 2).join("\n");
+    return buildCardKitCollapsiblePanel({
+      title: isStreaming ? "💭 推理过程（实时）" : "💭 推理过程（完成）",
+      content: briefText,
+      titleColor: "cus-panel-blue",
+      borderColor: "cus-panel-blue",
+      expanded: false,
+    });
+  }
+
+  return buildCardKitCollapsiblePanel({
+    title: isStreaming ? "💭 推理过程（实时）" : "💭 推理过程（完成）",
+    content: fullText,
+    titleColor: "cus-panel-blue",
+    borderColor: "cus-panel-blue",
+    expanded: isStreaming,
+  });
+}
+
+function resolveGroupCardReasoningMode(config) {
+  const mode = String(config?.groupCardReasoningMode || "none").toLowerCase();
+  return ["none", "brief", "full"].includes(mode) ? mode : "none";
 }
 
 function buildCardKitCollapsiblePanel({ title, content, expanded = false, titleColor, borderColor }) {
@@ -1242,6 +1299,26 @@ function buildLegacyReplyCard(runtime, runKey, entry) {
   const legacyDisplay = entry.state === "completed"
     ? splitAssistantReplyForDisplay(resolveAssistantReplyContent(entry))
     : { answerText: entry.text };
+  const chatType = typeof runtime.resolveChatType === "function"
+    ? runtime.resolveChatType(entry?.chatId)
+    : "";
+  const reasoningMode = chatType === "group"
+    ? resolveGroupCardReasoningMode(runtime?.config)
+    : "full";
+  let thinkingText = formatThinkingText({
+    state: entry.state,
+    elapsed: formatReplyElapsed(entry.startedAt),
+    reasoningTrace: runtime.reasoningTraceByRunKey?.get(runKey),
+    tokenUsage: runtime.latestTokenUsageByThreadId.get(entry.threadId),
+    assistantNotes: buildAssistantDisplayContent(entry).notes,
+  });
+  if (reasoningMode === "none") {
+    thinkingText = entry.state === "streaming"
+      ? "💭 正在推理…"
+      : "💭 推理完成";
+  } else if (reasoningMode === "brief") {
+    thinkingText = thinkingText.split("\n").slice(0, 2).join("\n");
+  }
   return buildAssistantReplyCard({
     text: legacyDisplay.answerText,
     state: entry.state,
@@ -1249,13 +1326,7 @@ function buildLegacyReplyCard(runtime, runKey, entry) {
     model: resolveReplyCardModel(runtime, entry),
     effort: resolveReplyCardEffort(runtime, entry),
     toolText: formatToolTraceText(runtime.toolTraceByRunKey.get(runKey), entry.state),
-    thinkingText: formatThinkingText({
-      state: entry.state,
-      elapsed: formatReplyElapsed(entry.startedAt),
-      reasoningTrace: runtime.reasoningTraceByRunKey?.get(runKey),
-      tokenUsage: runtime.latestTokenUsageByThreadId.get(entry.threadId),
-      assistantNotes: buildAssistantDisplayContent(entry).notes,
-    }),
+    thinkingText,
     usageText: formatUsageText(runtime.latestTokenUsageByThreadId.get(entry.threadId)),
     contextText: formatContextText(runtime.latestTokenUsageByThreadId.get(entry.threadId)),
     toolCountText: formatToolCountText(runtime.toolItemIdsByRunKey.get(runKey)),

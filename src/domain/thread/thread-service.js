@@ -470,11 +470,13 @@ const GROUP_HARD_GUARD = [
 ].join("\n");
 
 /**
- * 群聊线程强制受限权限：workspaceWrite 沙箱 + on-request 审批。
- * 私聊维持配置（通常是 full-access）。
+ * 群聊线程权限：
+ * - 外部群（isExternalGroup，非免@白名单，需 @ 才回）→ 强制只读沙箱 + on-request 审批。
+ * - 内部白名单群（管理员常驻）→ 维持配置（通常 full-access），不影响管理员干活。
+ * - 私聊维持配置。
  */
 function resolveTurnAccessMode(normalized, configuredAccessMode) {
-  if (normalized?.chatType === "group") {
+  if (normalized?.chatType === "group" && normalized?.isExternalGroup === true) {
     return "group-readonly";
   }
   return configuredAccessMode;
@@ -494,7 +496,8 @@ function buildMessageWithBridgeCapabilities(normalized) {
   const body = identityBlock
     ? `${identityBlock}${mentionMarker}${text}`
     : text;
-  const guard = isGroup ? GROUP_HARD_GUARD : "";
+  // 硬守卫只注入外部群（非免@白名单）；内部白名单群不注入，避免干扰管理员正常操作。
+  const guard = isGroup && normalized?.isExternalGroup === true ? GROUP_HARD_GUARD : "";
 
   return [
     "<feishu-bridge-capabilities>",
@@ -525,7 +528,8 @@ function buildGroupSenderIdentityForCustom(normalized, text) {
   const senderId = String(normalized?.senderId || "").trim();
   const prefix = buildGroupSenderIdentity(senderName, senderId);
   const mentionMarker = normalized?.mentionedBot ? "（@了我）" : "";
-  return `${prefix}${mentionMarker}${String(text || "")}\n\n${GROUP_HARD_GUARD}`;
+  const guard = normalized?.isExternalGroup === true ? `\n\n${GROUP_HARD_GUARD}` : "";
+  return `${prefix}${mentionMarker}${String(text || "")}${guard}`;
 }
 
 module.exports = {

@@ -72,6 +72,11 @@ function readConfig() {
       readCompatEnv("CODEX_IM_CARDKIT_FAILURE_COOLDOWN_MS"),
       5 * 60 * 1000
     ),
+    groupCardReasoningMode: readAllowedStringEnv(
+      readCompatEnv("CODEX_IM_GROUP_CARD_REASONING_MODE"),
+      ["none", "brief", "full"],
+      "none"
+    ),
     codexRpcTimeoutMs: readPositiveIntEnv(readCompatEnv("CODEX_IM_CODEX_RPC_TIMEOUT_MS"), 45000),
     codexTurnStartTimeoutMs: readPositiveIntEnv(readCompatEnv("CODEX_IM_CODEX_TURN_START_TIMEOUT_MS"), 300000),
     staleTurnTimeoutMs: readNonNegativeIntEnv(
@@ -129,6 +134,14 @@ function readBooleanEnv(name, defaultValue) {
 function readTextEnv(name) {
   const value = process.env[name];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readAllowedStringEnv(name, allowedValues, defaultValue) {
+  const value = readTextEnv(name);
+  if (!value) {
+    return defaultValue;
+  }
+  return allowedValues.includes(value) ? value : defaultValue;
 }
 
 function readPositiveIntEnv(name, defaultValue) {

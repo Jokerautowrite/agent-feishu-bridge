@@ -191,6 +191,9 @@ async function applyGroupMentionPolicy(runtime, normalized) {
     return normalized;
   }
 
+  // 非免@白名单 = 外部群（需 @ 才回）：标记为外部群，后续强制只读沙箱 + 硬守卫。
+  normalized.isExternalGroup = true;
+
   const rawText = String(normalized.text || "");
   const isCommand = /^\/[a-z]/i.test(rawText.trim());
   if (isCommand) {
@@ -334,6 +337,9 @@ async function steerActiveTurn(runtime, { threadId, normalized }) {
  */
 function buildGroupSteerText(normalized) {
   if (normalized?.chatType !== "group") {
+    return String(normalized?.text || "");
+  }
+  if (normalized?.isExternalGroup !== true) {
     return String(normalized?.text || "");
   }
   const senderName = String(normalized?.senderName || "").trim();
