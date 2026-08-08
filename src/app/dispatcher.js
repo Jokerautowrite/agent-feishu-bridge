@@ -47,7 +47,12 @@ async function onFeishuTextEvent(runtime, event) {
     missingWorkspaceText: "",
   });
   if (!workspaceContext) {
-    await runtime.sendWelcomeCard(runtime, normalized, {
+    // 群聊没有可用 workspace → 静默忽略（不发卡片，防刷屏/防抢占绑定）。
+    // 私聊没有绑定 → 发欢迎卡片引导绑定（原逻辑）。
+    if (normalized.chatType === "group") {
+      return;
+    }
+    await runtime.sendWelcomeCard(normalized, {
       replyToMessageId: normalized.messageId,
     });
     return;

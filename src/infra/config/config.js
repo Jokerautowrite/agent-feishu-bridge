@@ -45,6 +45,7 @@ function readConfig() {
     adminOpenIds: readListEnv(readCompatEnv("CODEX_IM_ADMIN_OPEN_IDS")),
     groupMentionOnly: readBooleanEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_ONLY"), true),
     groupMentionExemptChats: readListEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_EXEMPT_CHATS")),
+    groupDefaultWorkspace: readEnv("CODEX_IM_GROUP_DEFAULT_WORKSPACE"),
     codexEndpoint: readEnv("CODEX_IM_CODEX_ENDPOINT"),
     codexCommand: readEnv("CODEX_IM_CODEX_COMMAND"),
     codexAppServerProfile: readEnv("CODEX_IM_CODEX_APP_SERVER_PROFILE"),

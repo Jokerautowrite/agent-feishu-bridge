@@ -563,7 +563,12 @@ function matchesPrefixCommand(text, command, prefix) {
 }
 
 function extractCardChatId(data) {
-  return normalizeIdentifier(data?.context?.open_chat_id);
+  return normalizeIdentifier(
+    data?.context?.open_chat_id
+    || data?.message?.chat_id
+    || data?.chat_id
+    || data?.event?.message?.chat_id
+  );
 }
 
 function extractCardSelectedValue(action, value) {

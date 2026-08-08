@@ -76,7 +76,6 @@ const FORM_CARD_ACTIONS = {
   bind_project: {
     feedback: "正在绑定项目...",
     run: (runtime, normalized, action) => runtime.bindWorkspaceFromForm(
-      runtime,
       normalized,
       action?.formValue?.project_name || ""
     ),
@@ -84,7 +83,6 @@ const FORM_CARD_ACTIONS = {
   add_custom_model_save: {
     feedback: PANEL_ACTION_CONFIG.add_custom_model_save.feedback,
     run: (runtime, normalized, action) => runtime.saveCustomModelFromForm(
-      runtime,
       normalized,
       action?.formValue || {}
     ),

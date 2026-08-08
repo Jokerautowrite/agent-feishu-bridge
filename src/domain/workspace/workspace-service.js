@@ -77,6 +77,15 @@ async function resolveWorkspaceContext(
   const replyTarget = runtime.resolveReplyToMessageId(normalized, replyToMessageId);
   const { bindingKey, workspaceRoot } = runtime.getBindingContext(normalized);
   if (!workspaceRoot) {
+    // 群聊未绑定时 fallback 到群聊默认 workspace（chat-groups）。
+    // 群聊不强制绑定业务项目：用统一的群聊工作区 + AGENTS.md 约束行为，
+    // 避免在群里发绑定卡片（防刷屏、防他人抢占绑定）。
+    if (normalized.chatType === "group") {
+      const groupWorkspace = String(runtime.config?.groupDefaultWorkspace || "").trim();
+      if (groupWorkspace && isWorkspaceAllowed(groupWorkspace, runtime.config.workspaceAllowlist)) {
+        return { bindingKey, workspaceRoot: groupWorkspace, replyTarget };
+      }
+    }
     if (missingWorkspaceText) {
       await runtime.sendInfoCardMessage({
         chatId: normalized.chatId,
@@ -179,6 +188,21 @@ function resolveBindWorkspacePath(runtime, rawWorkspaceRoot) {
 }
 
 async function bindWorkspaceFromForm(runtime, normalized, projectName) {
+  // 群聊里只有管理员能绑定/改绑（防止群里其他人抢占绑定）
+  if (normalized.chatType === "group") {
+    const senderId = String(normalized.senderId || "").trim();
+    const isAdmin = (
+      runtime.groupAdmins && runtime.groupAdmins.isAdmin(normalized.chatId, senderId)
+    ) || (
+      Array.isArray(runtime.config?.adminOpenIds)
+      && runtime.config.adminOpenIds.includes(senderId)
+    );
+    if (!isAdmin) {
+      console.log(`[codex-im] group bind rejected (not admin): chat=${normalized.chatId} sender=${senderId.slice(0, 8)}...`);
+      return; // 静默，不给任何提示
+    }
+  }
+
   const rawWorkspaceRoot = String(projectName || "").trim();
   if (!rawWorkspaceRoot) {
     await runtime.sendInfoCardMessage({

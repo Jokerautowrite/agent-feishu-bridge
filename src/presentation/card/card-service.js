@@ -273,8 +273,9 @@ async function handleCardAction(runtime, data) {
       console.warn("[codex-im] card approval rejected by sender allowlist", {
         operatorIds: operatorSenderIds,
       });
-      // 群聊里非管理员点审批按钮 → 静默忽略
-      if (chatType === "group") {
+      // 群聊里非管理员点审批按钮 → 静默忽略。
+      // chatType 未知（解析不出群聊上下文，如外部群）也保守静默，防止群里刷提示。
+      if (chatType === "group" || !chatType) {
         return buildCardResponse({});
       }
       runCardActionTask(runtime, sendCardActionFeedback(runtime, data, "你没有审批该请求的权限。", "error"));
@@ -296,8 +297,9 @@ async function handleCardAction(runtime, data) {
       actionKind: action.kind,
       actionName: action.action || "",
     });
-    // 群聊里非管理员点卡片按钮 → 静默忽略（不回复任何提示，防止刷屏）
-    if (chatType === "group") {
+    // 群聊里非管理员点卡片按钮 → 静默忽略（不回复任何提示，防止刷屏）。
+    // chatType 未知（解析不出群聊上下文，如外部群）也保守静默。
+    if (chatType === "group" || !chatType) {
       return buildCardResponse({});
     }
     runCardActionTask(
