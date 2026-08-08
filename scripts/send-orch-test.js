@@ -1,7 +1,13 @@
 const fs = require("fs");
+const os = require("os");
+const path = require("path");
 const lark = require("@larksuiteoapi/node-sdk");
+
+// env 文件路径：优先环境变量 AGENT_BRIDGE_ENV_FILE，缺省 ~/.config/agent-bridge/agent-bridge-codex.env
+const ENV_FILE = process.env.AGENT_BRIDGE_ENV_FILE
+  || path.join(os.homedir(), ".config/agent-bridge/agent-bridge-codex.env");
 const env = Object.fromEntries(
-  fs.readFileSync("/home/xiaochuang/.config/agent-bridge/agent-bridge-codex.env", "utf8")
+  fs.readFileSync(ENV_FILE, "utf8")
     .split("\n").filter(l => l.includes("=") && !l.trim().startsWith("#"))
     .map(l => { const i = l.indexOf("="); return [l.slice(0, i).trim(), l.slice(i + 1).trim()]; })
 );
@@ -18,7 +24,14 @@ const client = new lark.Client({
   appType: lark.AppType.SelfBuild, domain: lark.Domain.Feishu,
   loggerLevel: lark.LoggerLevel.error,
 });
-const CHAT_ID = "oc_a2cdec6e927e3791de391d14c45edb2e";
+// 测试群 chat_id：优先 env 文件里的 AGENT_BRIDGE_TEST_CHAT_ID，其次进程环境变量，最后命令行参数
+const CHAT_ID = env.AGENT_BRIDGE_TEST_CHAT_ID
+  || process.env.AGENT_BRIDGE_TEST_CHAT_ID
+  || process.argv[2];
+if (!CHAT_ID) {
+  console.error("缺少测试群 chat_id：请在 env 文件设置 AGENT_BRIDGE_TEST_CHAT_ID，或传命令行参数");
+  process.exit(1);
+}
 
 function opt(label, value) { return { text: { tag: "plain_text", content: label }, value }; }
 function select(name, placeholder, options) { return { tag: "select_static", name, placeholder: { tag: "plain_text", content: placeholder }, options }; }
