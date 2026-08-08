@@ -53,6 +53,7 @@
     "test:active-turn-steer": "node ./scripts/test-active-turn-steer.js",
     "test:media": "node ./scripts/test-media-fixtures.js",
     "test:directives": "node ./scripts/test-outbound-directives.js",
+    "test:group-service": "node ./scripts/test-group-service.js",
     "privacy:scan": "node ./scripts/privacy-scan.js",
     "pack:dry-run": "npm pack --dry-run",
     "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"

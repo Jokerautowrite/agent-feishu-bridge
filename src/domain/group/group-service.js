@@ -18,28 +18,28 @@ function stripBotMention(text, mentions, botOpenId) {
   if (!normalizedBotId || !Array.isArray(mentions) || !normalizedText) {
     return normalizedText;
   }
-  const botMention = mentions.find((mention) => (
+  const botMentions = mentions.filter((mention) => (
     String(mention?.openId || "").trim() === normalizedBotId
     || String(mention?.userId || "").trim() === normalizedBotId
   ));
-  if (!botMention) {
+  if (!botMentions.length) {
     return normalizedText;
   }
   const tokens = [];
-  if (botMention.name) {
-    tokens.push(`@${botMention.name}`);
-  }
-  if (botMention.key) {
-    tokens.push(botMention.key);
+  for (const botMention of botMentions) {
+    if (botMention.name) {
+      tokens.push(`@${botMention.name}`);
+    }
+    if (botMention.key) {
+      tokens.push(botMention.key);
+    }
   }
   let result = normalizedText.trim();
   for (const token of tokens) {
     if (!token) {
       continue;
     }
-    if (result.startsWith(token)) {
-      result = result.slice(token.length).trimStart();
-    }
+    result = result.split(token).join(" ").replace(/\s+/g, " ").trim();
   }
   return result.trim();
 }

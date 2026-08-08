@@ -605,4 +605,5 @@ module.exports = {
   mapCodexMessageToImEvent,
   normalizeCardActionContext,
   normalizeFeishuTextEvent,
+  parseCommand,
 };

@@ -1,6 +1,7 @@
 const messageNormalizers = require("../presentation/message/normalizers");
 const eventsRuntime = require("./codex-event-service");
 const attachmentRuntime = require("../domain/attachments/attachment-service");
+const groupService = require("../domain/group/group-service");
 const { formatFailureText } = require("../shared/error-text");
 
 async function onFeishuTextEvent(runtime, event) {
@@ -10,6 +11,13 @@ async function onFeishuTextEvent(runtime, event) {
   }
   if (normalized.chatType && normalized.chatId) {
     runtime.setChatType(normalized.chatId, normalized.chatType);
+  }
+  if (normalized.chatType === "group") {
+    const groupResult = await applyGroupMentionPolicy(runtime, normalized);
+    if (!groupResult) {
+      return;
+    }
+    normalized = groupResult;
   }
   if (normalized.command === "unsupported_message") {
     await runtime.sendInfoCardMessage({
@@ -126,6 +134,55 @@ async function onFeishuTextEvent(runtime, event) {
     });
     throw error;
   }
+}
+
+/**
+ * 群聊 @过滤：群聊里只有两种情况会继续处理——
+ * 1. 消息是命令（/ 开头），直接放行；
+ * 2. 消息 @ 了机器人，去掉 @机器人 前缀后再放行。
+ * 其他普通群聊消息静默忽略，避免机器人在群里到处接话。
+ */
+async function applyGroupMentionPolicy(runtime, normalized) {
+  const config = runtime.config || {};
+  if (config.groupMentionOnly === false) {
+    return normalized;
+  }
+
+  const rawText = String(normalized.text || "");
+  const isCommand = /^\/[a-z]/i.test(rawText.trim());
+  if (isCommand) {
+    return normalized;
+  }
+
+  const botOpenId = await groupService.resolveBotOpenId(
+    runtime,
+    config.botOpenId || ""
+  );
+  if (!botOpenId) {
+    console.warn("[codex-im] group mention policy: cannot resolve bot open_id, allowing message");
+    return normalized;
+  }
+
+  const mentioned = groupService.isBotMentioned(normalized.mentions, botOpenId);
+  if (!mentioned) {
+    console.log(
+      `[codex-im] group message ignored (bot not mentioned): chat=${normalized.chatId} text=${rawText.slice(0, 80)}`
+    );
+    return null;
+  }
+
+  const stripped = groupService.stripBotMention(rawText, normalized.mentions, botOpenId);
+  if (!stripped) {
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: normalized.messageId,
+      text: "在的，你想让我做什么？直接说就行（例如 @我 帮我写个脚本）。",
+    });
+    return null;
+  }
+  normalized.text = stripped;
+  normalized.command = messageNormalizers.parseCommand(stripped);
+  return normalized;
 }
 
 async function steerActiveTurn(runtime, { threadId, normalized }) {
@@ -245,6 +302,7 @@ function onCodexMessage(runtime, message) {
 }
 
 module.exports = {
+  applyGroupMentionPolicy,
   onCodexMessage,
   onFeishuCardAction,
   onFeishuTextEvent,

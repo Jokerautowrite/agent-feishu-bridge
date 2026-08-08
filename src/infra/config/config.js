@@ -41,6 +41,8 @@ function readConfig() {
     defaultProjectsRoot: readEnv("CODEX_IM_PROJECTS_ROOT")
       || path.join(os.homedir(), "projects"),
     cardActionSenderAllowlist: readListEnv(readCompatEnv("CODEX_IM_CARD_ACTION_SENDER_ALLOWLIST")),
+    botOpenId: readEnv("CODEX_IM_BOT_OPEN_ID"),
+    groupMentionOnly: readBooleanEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_ONLY"), true),
     codexEndpoint: readEnv("CODEX_IM_CODEX_ENDPOINT"),
     codexCommand: readEnv("CODEX_IM_CODEX_COMMAND"),
     codexAppServerProfile: readEnv("CODEX_IM_CODEX_APP_SERVER_PROFILE"),

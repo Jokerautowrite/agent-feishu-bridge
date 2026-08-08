@@ -7,6 +7,23 @@ class FeishuClientAdapter {
     this.client = client;
   }
 
+  /**
+   * 查询机器人自身信息（open_id 等），用于群聊 @过滤时识别“是不是在 @ 我”。
+   * GET /open-apis/bot/v3/info → { code, msg, bot: { open_id, app_name, ... } }
+   */
+  async getBotInfo() {
+    const response = await this.client.request({
+      url: "/open-apis/bot/v3/info",
+      method: "GET",
+    });
+    assertFeishuBusinessOk(response, "bot.v3.info");
+    const bot = response?.bot || {};
+    return {
+      openId: normalizeIdentifier(bot.open_id),
+      name: normalizeIdentifier(bot.app_name),
+    };
+  }
+
   async sendFileMessage({
     chatId,
     fileName,
