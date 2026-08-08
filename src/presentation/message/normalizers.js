@@ -16,7 +16,12 @@ function normalizeFeishuTextEvent(event, config) {
     return normalizeFeishuNonTextEvent(message, sender, config);
   }
 
-  const text = parseFeishuMessageText(message.content);
+  const rawText = parseFeishuMessageText(message.content);
+  if (!rawText) {
+    return null;
+  }
+  const mentions = extractFeishuMentions(message);
+  const text = replaceMentionKeysInText(rawText, mentions);
   if (!text) {
     return null;
   }
@@ -28,11 +33,51 @@ function normalizeFeishuTextEvent(event, config) {
     threadKey: message.root_id || "",
     senderId: sender?.sender_id?.open_id || sender?.sender_id?.user_id || "",
     chatType: normalizeIdentifier(message.chat_type),
+    mentions,
     messageId: message.message_id || "",
     text,
     command: parseCommand(text),
     receivedAt: new Date().toISOString(),
   };
+}
+
+function extractFeishuMentions(message) {
+  const raw = Array.isArray(message?.mentions) ? message.mentions : [];
+  const mentions = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+    const key = normalizeIdentifier(entry.key);
+    if (!key) {
+      continue;
+    }
+    mentions.push({
+      key,
+      openId: normalizeIdentifier(entry.id?.open_id),
+      userId: normalizeIdentifier(entry.id?.user_id),
+      name: normalizeIdentifier(entry.name),
+    });
+  }
+  return mentions;
+}
+
+function replaceMentionKeysInText(text, mentions) {
+  if (!Array.isArray(mentions) || !mentions.length) {
+    return typeof text === "string" ? text : "";
+  }
+  let result = String(text || "");
+  for (const mention of mentions) {
+    const key = String(mention.key || "").trim();
+    if (!key) {
+      continue;
+    }
+    const displayName = mention.name
+      ? `@${mention.name}`
+      : key;
+    result = result.split(key).join(displayName);
+  }
+  return result;
 }
 
 function normalizeFeishuNonTextEvent(message, sender, config) {
@@ -55,6 +100,8 @@ function normalizeFeishuNonTextEvent(message, sender, config) {
     chatId: message.chat_id || "",
     threadKey: message.root_id || "",
     senderId: sender?.sender_id?.open_id || sender?.sender_id?.user_id || "",
+    chatType: normalizeIdentifier(message.chat_type),
+    mentions: extractFeishuMentions(message),
     messageId: message.message_id || "",
     text,
     command,
