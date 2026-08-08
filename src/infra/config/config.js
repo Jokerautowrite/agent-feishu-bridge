@@ -46,6 +46,10 @@ function readConfig() {
     groupMentionOnly: readBooleanEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_ONLY"), true),
     groupMentionExemptChats: readListEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_EXEMPT_CHATS")),
     groupDefaultWorkspace: readEnv("CODEX_IM_GROUP_DEFAULT_WORKSPACE"),
+    groupAllowedChats: readListEnv(readCompatEnv("AGENT_BRIDGE_GROUP_ALLOWED_CHATS")),
+    groupAutoLeave: readBooleanEnv(readCompatEnv("AGENT_BRIDGE_GROUP_AUTO_LEAVE"), true),
+    superAdminOpenIds: readListEnv(readCompatEnv("AGENT_BRIDGE_SUPER_ADMIN_OPEN_IDS")),
+    groupMaliciousKeywords: readListEnv(readCompatEnv("AGENT_BRIDGE_GROUP_MALICIOUS_KEYWORDS")),
     groupReplyCooldownMs: readNonNegativeIntEnv(
       readCompatEnv("CODEX_IM_GROUP_REPLY_COOLDOWN_MS"),
       5000

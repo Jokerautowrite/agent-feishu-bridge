@@ -81,6 +81,7 @@ const CODEX_APP_SERVER_PROFILES = Object.freeze({
 });
 const INBOUND_MESSAGE_DEDUP_TTL_MS = 10 * 60 * 1000;
 const MAX_RECENT_INBOUND_MESSAGE_IDS = 1000;
+const GROUP_SECURITY_ALERT_COOLDOWN_MS = 10 * 60 * 1000;
 
 class FeishuBotRuntime {
   constructor(config = readConfig()) {
@@ -138,6 +139,7 @@ class FeishuBotRuntime {
     this.threadCreationByBindingWorkspace = new Map();
     this.resumedThreadIds = new Set();
     this.recentInboundMessageIds = new Map();
+    this.groupSecurityAlertCooldown = new Map();
     this.deliveryReceipts = new DeliveryReceiptHook({
       cliPath: config.deliveryLedgerCli,
       ledgerPath: config.deliveryLedgerPath,
@@ -239,6 +241,17 @@ class FeishuBotRuntime {
         console.log(
           `[codex-im] bot added to group chat=${chatId} by operator=${operatorOpenId.slice(0, 8)}...`
         );
+        // 未授权群自动退群（v3.0 群聊安全铁律 #2/#3）：
+        // 只有显式配置了 groupAllowedChats 且开启 groupAutoLeave 才生效；
+        // 未配置白名单时保持旧行为（不主动退群，仅把拉入者记为管理员）。
+        const allowedChats = Array.isArray(this.config.groupAllowedChats)
+          ? this.config.groupAllowedChats
+          : [];
+        const autoLeaveEnabled = Boolean(this.config.groupAutoLeave) && allowedChats.length > 0;
+        if (autoLeaveEnabled && !allowedChats.includes(chatId)) {
+          await this.handleUnauthorizedGroupAdded(chatId, operatorOpenId);
+          return;
+        }
         await this.groupAdmins.addAdmin(chatId, operatorOpenId);
       },
     });
@@ -750,6 +763,84 @@ function attachRuntimeForwarders() {
       // 预取失败不阻断消息处理
     }
     return this.memberNameCache.getMemberName(normalizedChatId, normalizedSenderId);
+  };
+
+  /**
+   * 被拉入未授权群聊：自动退群 + 私聊告警超级管理员（v3.0 群聊安全铁律）。
+   * 不把拉入者记为管理员（该群不被授权）。
+   */
+  proto.handleUnauthorizedGroupAdded = async function handleUnauthorizedGroupAdded(chatId, operatorOpenId) {
+    const normalizedChatId = typeof chatId === "string" ? chatId.trim() : "";
+    const normalizedOperator = typeof operatorOpenId === "string" ? operatorOpenId.trim() : "";
+    console.warn(
+      `[codex-im] bot added to UNAUTHORIZED group chat=${normalizedChatId} `
+      + `by operator=${normalizedOperator.slice(0, 8)}... → auto-leave + alert`
+    );
+
+    let leftGroup = false;
+    try {
+      const adapter = this.requireFeishuAdapter();
+      const botInfo = typeof adapter.getBotInfo === "function" ? await adapter.getBotInfo() : null;
+      const botOpenId = botInfo?.openId || "";
+      if (botOpenId) {
+        if (typeof adapter.leaveGroup === "function") {
+          await adapter.leaveGroup(normalizedChatId, botOpenId);
+          leftGroup = true;
+        }
+        this.resolvedBotOpenId = botOpenId;
+      }
+    } catch (error) {
+      console.error(`[codex-im] auto-leave failed chat=${normalizedChatId}: ${error.message}`);
+    }
+
+    await this.alertSuperAdminGroupSecurity({
+      title: leftGroup
+        ? "⚠️ 检测到被拉入未授权群聊（已自动退出）"
+        : "⚠️ 检测到被拉入未授权群聊（自动退出失败，请人工处理）",
+      details: [
+        `群ID：${normalizedChatId}`,
+        `拉入者 open_id：${normalizedOperator}`,
+        `时间：${new Date().toISOString()}`,
+      ].join("\n"),
+      throttleKey: `added:${normalizedChatId}`,
+    });
+  };
+
+  /**
+   * 私聊告警超级管理员（带节流：同一 key 10 分钟内只发一次，防刷屏）。
+   */
+  proto.alertSuperAdminGroupSecurity = async function alertSuperAdminGroupSecurity({
+    title = "",
+    details = "",
+    throttleKey = "",
+  } = {}) {
+    const superAdmins = Array.isArray(this.config.superAdminOpenIds)
+      ? this.config.superAdminOpenIds
+      : [];
+    if (!superAdmins.length || !title) {
+      return;
+    }
+    const key = String(throttleKey || title).trim();
+    const now = Date.now();
+    const lastAlertAt = Number(this.groupSecurityAlertCooldown?.get(key) || 0);
+    if (now - lastAlertAt < GROUP_SECURITY_ALERT_COOLDOWN_MS) {
+      return;
+    }
+    this.groupSecurityAlertCooldown?.set(key, now);
+
+    const text = `${title}\n${details}`;
+    const adapter = this.requireFeishuAdapter();
+    for (const openId of superAdmins) {
+      try {
+        if (typeof adapter.sendTextMessageToOpenId === "function") {
+          await adapter.sendTextMessageToOpenId(openId, text);
+        }
+      } catch (error) {
+        console.error(
+          `[codex-im] super admin alert failed openId=${openId.slice(0, 8)}...: ${error.message}`
+        );
+      }
+    }
   };
 }
 

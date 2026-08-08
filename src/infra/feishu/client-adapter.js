@@ -65,6 +65,56 @@ class FeishuClientAdapter {
     return members;
   }
 
+  /**
+   * 机器人退出指定群聊（或移除成员）。
+   * DELETE /open-apis/im/v1/chats/{chat_id}/members/{member_id}?member_id_type=open_id
+   * 传机器人自身 open_id 即实现“自动退群”。
+   */
+  async leaveGroup(chatId, memberOpenId) {
+    const normalizedChatId = normalizeIdentifier(chatId);
+    const normalizedMemberId = normalizeIdentifier(memberOpenId);
+    if (!normalizedChatId || !normalizedMemberId) {
+      throw new Error("Feishu leave group requires chatId and member open id");
+    }
+    const response = await this.client.request({
+      url: `/open-apis/im/v1/chats/${encodeURIComponent(normalizedChatId)}/members/${encodeURIComponent(normalizedMemberId)}`,
+      method: "DELETE",
+      params: {
+        member_id_type: "open_id",
+      },
+    });
+    assertFeishuBusinessOk(response, "chat.member.delete");
+    return response;
+  }
+
+  /**
+   * 按 open_id 给用户发送纯文本私聊消息（用于超级管理员安全告警）。
+   * POST /open-apis/im/v1/messages?receive_id_type=open_id
+   */
+  async sendTextMessageToOpenId(openId, text) {
+    const normalizedOpenId = normalizeIdentifier(openId);
+    const normalizedText = typeof text === "string" ? text.trim() : "";
+    if (!normalizedOpenId || !normalizedText) {
+      throw new Error("Feishu send text to open_id requires openId and text");
+    }
+    const createMessage = resolveCreateMessageMethod(this.client);
+    const response = await createMessage.call(
+      this.client.im?.v1?.message || this.client.im?.message || this.client,
+      {
+        params: {
+          receive_id_type: "open_id",
+        },
+        data: {
+          receive_id: normalizedOpenId,
+          msg_type: "text",
+          content: JSON.stringify({ text: normalizedText }),
+        },
+      }
+    );
+    assertFeishuBusinessOk(response, "message.create(open_id)");
+    return response;
+  }
+
   async sendFileMessage({
     chatId,
     fileName,

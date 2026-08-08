@@ -2,6 +2,7 @@ const messageNormalizers = require("../presentation/message/normalizers");
 const eventsRuntime = require("./codex-event-service");
 const attachmentRuntime = require("../domain/attachments/attachment-service");
 const groupService = require("../domain/group/group-service");
+const groupSecurity = require("../domain/group/group-security");
 const { formatFailureText } = require("../shared/error-text");
 
 async function onFeishuTextEvent(runtime, event) {
@@ -19,6 +20,50 @@ async function onFeishuTextEvent(runtime, event) {
     }
     normalized = groupResult;
     normalized = await enrichGroupSenderIdentity(runtime, normalized);
+    // 恶意/敏感关键词硬拦截 + 动态风险分级：
+    // - 非管理员命中 → 静默忽略（不发模型，防刷屏）；critical 额外私聊告警超级管理员。
+    // - 管理员命中 → 放行但留审计日志（管理员可信，仅记录风险等级）。
+    const security = groupSecurity.checkGroupMessageSecurity(
+      normalized.text,
+      runtime.config?.groupMaliciousKeywords
+    );
+    if (security.blocked) {
+      const risk = groupSecurity.assessGroupRisk({
+        text: normalized.text,
+        hour: new Date().getHours(),
+        recentCount: recentMessageCountForSender(normalized.senderId),
+      });
+      if (isGroupSenderAdmin(runtime, normalized)) {
+        console.warn(
+          `[codex-im] group security admin-passthrough kind=${security.kind} `
+          + `level=${risk.level} score=${risk.score} keyword=${security.keyword} `
+          + `chat=${normalized.chatId}`
+        );
+      } else {
+        console.log(
+          `[codex-im] group security blocked kind=${security.kind} level=${risk.level} `
+          + `score=${risk.score} factors=${risk.factors.join(",")} keyword=${security.keyword} `
+          + `chat=${normalized.chatId} sender=${String(normalized.senderId || "").slice(0, 12)}`
+        );
+        if (
+          risk.level === "critical"
+          && typeof runtime.alertSuperAdminGroupSecurity === "function"
+        ) {
+          runtime.alertSuperAdminGroupSecurity({
+            title: "⚠️ 群聊恶意指令被拦截（高危）",
+            details: [
+              `群ID：${normalized.chatId}`,
+              `发送者：${String(normalized.senderId || "").slice(0, 12)}`,
+              `命中关键词：${security.keyword}`,
+              `风险：${risk.score} 分（${risk.level}）${risk.factors.length ? `，因子：${risk.factors.join("、")}` : ""}`,
+              `时间：${new Date().toISOString()}`,
+            ].join("\n"),
+            throttleKey: `critical:${normalized.chatId}`,
+          }).catch(() => undefined);
+        }
+        return;
+      }
+    }
     // 群聊回复 CD：普通 @ 消息限流，防止攻击者刷屏让模型反复开任务。
     // 命令（/ 开头）不受限流，管理员操作即时生效。
     const hasCommand = Boolean(normalized.command) && normalized.command !== "message" && normalized.command !== "";
@@ -152,6 +197,56 @@ async function onFeishuTextEvent(runtime, event) {
     });
     throw error;
   }
+}
+
+/**
+ * 判断群聊发送者是否为管理员（白名单 open_id）。
+ */
+function isGroupSenderAdmin(runtime, normalized) {
+  const senderId = String(normalized?.senderId || "").trim();
+  if (!senderId) {
+    return false;
+  }
+  if (runtime.groupAdmins && runtime.groupAdmins.isAdmin(normalized?.chatId, senderId)) {
+    return true;
+  }
+  const configAdmins = Array.isArray(runtime?.config?.adminOpenIds)
+    ? runtime.config.adminOpenIds
+    : [];
+  if (configAdmins.includes(senderId)) {
+    return true;
+  }
+  const superAdmins = Array.isArray(runtime?.config?.superAdminOpenIds)
+    ? runtime.config.superAdminOpenIds
+    : [];
+  return superAdmins.includes(senderId);
+}
+
+/**
+ * 发送者在最近窗口（默认 60s）内的消息条数（含当前这条）。
+ * 用于风险分级里的“高频请求”因子。
+ */
+const SENDER_MESSAGE_WINDOW_MS = 60 * 1000;
+const senderMessageWindows = new Map();
+function recentMessageCountForSender(senderId, windowMs = SENDER_MESSAGE_WINDOW_MS) {
+  const normalizedSenderId = typeof senderId === "string" ? senderId.trim() : "";
+  if (!normalizedSenderId) {
+    return 0;
+  }
+  const now = Date.now();
+  const list = (senderMessageWindows.get(normalizedSenderId) || []).filter(
+    (timestamp) => now - timestamp < windowMs
+  );
+  list.push(now);
+  senderMessageWindows.set(normalizedSenderId, list);
+  if (senderMessageWindows.size > 500) {
+    for (const [key, timestamps] of senderMessageWindows.entries()) {
+      if (timestamps.every((timestamp) => now - timestamp >= windowMs)) {
+        senderMessageWindows.delete(key);
+      }
+    }
+  }
+  return list.length;
 }
 
 /**
