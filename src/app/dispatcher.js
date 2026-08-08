@@ -148,6 +148,14 @@ async function applyGroupMentionPolicy(runtime, normalized) {
     return normalized;
   }
 
+  // 免@白名单：这些群聊不需要 @ 机器人也会响应
+  const exemptChats = Array.isArray(config.groupMentionExemptChats)
+    ? config.groupMentionExemptChats
+    : [];
+  if (exemptChats.includes(normalized.chatId)) {
+    return normalized;
+  }
+
   const rawText = String(normalized.text || "");
   const isCommand = /^\/[a-z]/i.test(rawText.trim());
   if (isCommand) {

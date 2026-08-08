@@ -116,6 +116,14 @@ assert.strictEqual(
   const openMsg = { chatType: "group", text: "随便聊聊", command: "message", mentions: [], chatId: "oc_g6", messageId: "om_6" };
   assert.strictEqual(await applyGroupMentionPolicy(openRuntime, openMsg), openMsg, "filter disabled allows all");
 
+  // exempt chat allowlist → allow without mention
+  const exemptRuntime = {
+    config: { groupMentionOnly: true, groupMentionExemptChats: ["oc_exempt"] },
+    resolvedBotOpenId: BOT_OPEN_ID,
+  };
+  const exemptMsg = { chatType: "group", text: "免@群聊", command: "message", mentions: [], chatId: "oc_exempt", messageId: "om_exempt" };
+  assert.strictEqual(await applyGroupMentionPolicy(exemptRuntime, exemptMsg), exemptMsg, "exempt chat allows all");
+
   console.log("group-service tests OK");
 })().catch((error) => {
   console.error(error);
