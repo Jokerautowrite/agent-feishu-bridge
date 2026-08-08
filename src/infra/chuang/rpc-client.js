@@ -50,6 +50,14 @@ class CodexRpcClient {
     this.pending = new Map();
     this.isReady = false;
     this.messageListeners = new Set();
+    // ── 自动重连状态 ──────────────────────────────
+    this.reconnectTimer = null;
+    this.reconnectAttempts = 0;
+    this.reconnectMaxDelayMs = 30000;
+    this.reconnectBaseDelayMs = 1000;
+    this.reconnectLoopRunning = false;
+    this.reconnectWaiters = new Set(); // 断线期间等待重连的 sendRequest 回调
+    this.isManualRestarting = false;
   }
 
   async connect() {
@@ -60,6 +68,7 @@ class CodexRpcClient {
     if (!this.socketPath) {
       throw new Error("CHUANG_AGENT_SOCKET is not configured; set it to the chuang app-server socket path");
     }
+    this.stopReconnectTimer();
     await new Promise((resolve, reject) => {
       const socket = net.connect(this.socketPath);
       this.socket = socket;
@@ -68,16 +77,23 @@ class CodexRpcClient {
       socket.on("connect", () => {
         opened = true;
         this.isReady = true;
+        this.reconnectAttempts = 0;
         console.log(`[codex-im] connected to Chuang app-server socket ${this.socketPath}`);
+        this.scheduleReconnectIfNeeded(); // 清除残留重连定时器（若有）
         resolve();
       });
       socket.on("error", (error) => {
         this.isReady = false;
         if (!opened) {
+          if (this.socket === socket) {
+            this.socket = null;
+          }
+          this.scheduleReconnect();
           reject(error);
           return;
         }
         this.rejectAllPending(error);
+        this.scheduleReconnect();
       });
       socket.on("data", (chunk) => {
         this.stdoutBuffer += chunk.toString("utf8");
@@ -92,13 +108,113 @@ class CodexRpcClient {
       });
       socket.on("close", () => {
         this.isReady = false;
+        this.socket = null;
         this.rejectAllPending(new Error("Chuang app-server socket closed"));
+        this.scheduleReconnect();
       });
+    });
+  }
+
+  /**
+   * 断线自动重连（带退避保护）。
+   * - socket 断开/连接失败后由 connectSocket 调用。
+   * - 指数退避 1s→2s→4s→…→30s 封顶，持续重试直到连上。
+   * - 重连成功会重新 initialize（app-server 重启后需重新握手）。
+   * - 重连期间等待的请求（sendRaw 的 reconnect waiters）会继续。
+   */
+  scheduleReconnect() {
+    if (this.isManualRestarting) {
+      return;
+    }
+    if (this.reconnectTimer || this.reconnectLoopRunning) {
+      return;
+    }
+    this.isReady = false;
+    const delay = Math.min(
+      this.reconnectBaseDelayMs * 2 ** Math.min(this.reconnectAttempts, 6),
+      this.reconnectMaxDelayMs,
+    );
+    this.reconnectAttempts += 1;
+    console.log(
+      `[codex-im] chuang socket disconnected; reconnect attempt ${this.reconnectAttempts} in ${delay}ms (protect: ${this.socketPath})`,
+    );
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.tryReconnectOnce().catch((error) => {
+        console.error(`[codex-im] chuang reconnect failed: ${error?.message || error}`);
+      });
+    }, delay);
+  }
+
+  stopReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+  }
+
+  async tryReconnectOnce() {
+    if (this.isManualRestarting) {
+      return;
+    }
+    try {
+      // 尝试重连：connectSocket 内部成功会 resolve，失败会再次 scheduleReconnect
+      await this.connectSocket();
+      if (this.isReady && this.socket) {
+        try {
+          await this.initialize();
+        } catch (error) {
+          console.error(`[codex-im] chuang reinitialize failed: ${error?.message || error}`);
+          this.scheduleReconnect();
+        }
+      }
+      // 通知等待重连的请求
+      if (this.reconnectWaiters.size) {
+        const waiters = [...this.reconnectWaiters];
+        this.reconnectWaiters.clear();
+        for (const waiter of waiters) {
+          waiter();
+        }
+      }
+    } catch (error) {
+      // connectSocket 失败已在内部调度下一次重连；这里只记录日志，不打断退避循环。
+      console.error(`[codex-im] chuang reconnect attempt failed: ${error?.message || error}`);
+    }
+  }
+
+  scheduleReconnectIfNeeded() {
+    // 连接成功时若有残留定时器就清掉（兜底）
+    this.stopReconnectTimer();
+  }
+
+  /**
+   * 等待重连（最多 reconnectWaitMs 毫秒）。返回 true 表示已重连成功。
+   */
+  async waitForReconnect(reconnectWaitMs = 15000) {
+    if (this.isReady && this.socket && !this.socket.destroyed && this.socket.writable) {
+      return true;
+    }
+    if (!this.reconnectLoopRunning && !this.reconnectTimer) {
+      this.scheduleReconnect();
+    }
+    return new Promise((resolve) => {
+      let waiter;
+      const timer = setTimeout(() => {
+        this.reconnectWaiters.delete(waiter);
+        resolve(false);
+      }, reconnectWaitMs);
+      waiter = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      this.reconnectWaiters.add(waiter);
     });
   }
 
   async restartSpawn({ appServerProfile = "" } = {}) {
     this.appServerProfile = normalizeNonEmptyString(appServerProfile);
+    this.stopReconnectTimer();
+    this.isManualRestarting = true;
     this.isReady = false;
     this.rejectAllPending(new Error("Chuang app-server reconnecting"));
     if (this.socket) {
@@ -111,8 +227,12 @@ class CodexRpcClient {
       }
     }
     this.stdoutBuffer = "";
-    await this.connectSocket();
-    await this.initialize();
+    try {
+      await this.connectSocket();
+      await this.initialize();
+    } finally {
+      this.isManualRestarting = false;
+    }
   }
 
   onMessage(listener) {
@@ -146,7 +266,7 @@ class CodexRpcClient {
   }) {
     const input = buildTurnInputPayload(text, attachments);
     return threadId
-      ? this.sendRequest(
+      ? this.sendRequestProtected(
         "turn/start",
         buildTurnStartParams({
           threadId,
@@ -157,7 +277,7 @@ class CodexRpcClient {
           workspaceRoot,
         })
       )
-      : this.sendRequest("thread/start", { input });
+      : this.sendRequestProtected("thread/start", { input });
   }
 
   async steerTurn({
@@ -189,11 +309,11 @@ class CodexRpcClient {
     if (normalizedClientUserMessageId) {
       params.clientUserMessageId = normalizedClientUserMessageId;
     }
-    return this.sendRequest("turn/steer", params);
+    return this.sendRequestProtected("turn/steer", params);
   }
 
   async startThread({ cwd }) {
-    return this.sendRequest("thread/start", buildStartThreadParams(cwd));
+    return this.sendRequestProtected("thread/start", buildStartThreadParams(cwd));
   }
 
   async resumeThread({ threadId }) {
@@ -201,11 +321,11 @@ class CodexRpcClient {
     if (!normalizedThreadId) {
       throw new Error("thread/resume requires a non-empty threadId");
     }
-    return this.sendRequest("thread/resume", { threadId: normalizedThreadId });
+    return this.sendRequestProtected("thread/resume", { threadId: normalizedThreadId });
   }
 
   async listThreads({ cursor = null, limit = 100, sortKey = "updated_at" } = {}) {
-    return this.sendRequest("thread/list", buildListThreadsParams({
+    return this.sendRequestProtected("thread/list", buildListThreadsParams({
       cursor,
       limit,
       sortKey,
@@ -213,7 +333,7 @@ class CodexRpcClient {
   }
 
   async listModels() {
-    return this.sendRequest("model/list", {});
+    return this.sendRequestProtected("model/list", {});
   }
 
   async sendRequest(method, params, options = {}) {
@@ -268,6 +388,21 @@ class CodexRpcClient {
       throw new Error("Chuang app-server socket is not connected");
     }
     this.socket.write(`${payload}\n`);
+  }
+
+  /**
+   * sendRequest 断线保护：socket 未连接时等待自动重连，
+   * 重连成功后再发送；超时仍失败则抛出原错误。
+   */
+  async sendRequestProtected(method, params = {}, options = {}) {
+    if (this.isReady && this.socket && !this.socket.destroyed && this.socket.writable) {
+      return this.sendRequest(method, params, options);
+    }
+    const ok = await this.waitForReconnect(options.reconnectWaitMs || 15000);
+    if (!ok) {
+      throw new Error(`Chuang app-server socket is not connected (reconnect timeout for ${method})`);
+    }
+    return this.sendRequest(method, params, options);
   }
 
   handleIncoming(rawMessage) {
