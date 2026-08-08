@@ -46,6 +46,10 @@ function readConfig() {
     groupMentionOnly: readBooleanEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_ONLY"), true),
     groupMentionExemptChats: readListEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_EXEMPT_CHATS")),
     groupDefaultWorkspace: readEnv("CODEX_IM_GROUP_DEFAULT_WORKSPACE"),
+    groupReplyCooldownMs: readNonNegativeIntEnv(
+      readCompatEnv("CODEX_IM_GROUP_REPLY_COOLDOWN_MS"),
+      5000
+    ),
     codexEndpoint: readEnv("CODEX_IM_CODEX_ENDPOINT"),
     codexCommand: readEnv("CODEX_IM_CODEX_COMMAND"),
     codexAppServerProfile: readEnv("CODEX_IM_CODEX_APP_SERVER_PROFILE"),

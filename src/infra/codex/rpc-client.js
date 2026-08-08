@@ -626,10 +626,18 @@ function normalizeAccessMode(value) {
   if (normalized === "default") {
     return "current";
   }
-  return normalized === "full-access" ? normalized : "";
+  return (normalized === "full-access" || normalized === "group-readonly") ? normalized : "";
 }
 
 function buildExecutionPolicies(accessMode, workspaceRoot) {
+  // 群聊强制只读沙箱：物理上禁止任何写/删/清空操作（read-only sandbox 直接拒绝写入）。
+  // 这是对抗 prompt injection 的最硬防线，不依赖模型自觉。
+  if (accessMode === "group-readonly") {
+    return {
+      approvalPolicy: "on-request",
+      sandboxPolicy: { type: "readOnly", networkAccess: true },
+    };
+  }
   if (accessMode === "full-access") {
     return {
       approvalPolicy: "never",
