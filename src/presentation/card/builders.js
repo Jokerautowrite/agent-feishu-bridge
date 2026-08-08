@@ -1201,31 +1201,33 @@ function buildModelSelectElement(codexParams, modelOptions, customModelNames = [
   const normalizedCustomNames = Array.isArray(customModelNames)
     ? customModelNames.map((name) => String(name || "").trim()).filter(Boolean)
     : [];
-  const options = [];
+  const rawOptions = [];
   const seen = new Set();
-  for (const option of normalizeSelectOptions(modelOptions)) {
+  for (const option of Array.isArray(modelOptions) ? modelOptions : []) {
+    const label = String(option?.label || option?.value || "").trim();
     const value = String(option.value || "").trim();
-    if (!value || seen.has(value)) {
+    if (!label || !value || seen.has(value)) {
       continue;
     }
     seen.add(value);
-    options.push(option);
+    rawOptions.push({ label, value });
   }
   for (const name of normalizedCustomNames) {
     if (seen.has(name)) {
       continue;
     }
     seen.add(name);
-    options.push({ label: `✏️ ${name}`, value: name });
+    rawOptions.push({ label: `✏️ ${name}`, value: name });
   }
   const selectedValue = String(codexParams?.model || "").trim();
   if (selectedValue && !seen.has(selectedValue) && normalizedCustomNames.includes(selectedValue)) {
-    options.push({ label: `✏️ ${selectedValue}`, value: selectedValue });
+    rawOptions.push({ label: `✏️ ${selectedValue}`, value: selectedValue });
   }
-  options.push({
+  rawOptions.push({
     label: "✏️ 添加自定义模型",
     value: CUSTOM_MODEL_ADD_OPTION_VALUE,
   });
+  const options = normalizeSelectOptions(rawOptions);
   const initialOption = findOptionByValue(options, selectedValue);
   return {
     tag: "select_static",
