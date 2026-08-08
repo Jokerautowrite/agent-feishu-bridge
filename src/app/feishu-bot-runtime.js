@@ -62,6 +62,7 @@ const approvalRuntime = require("../domain/approval/approval-service");
 const runtimeState = require("../domain/session/binding-context");
 const threadRuntime = require("../domain/thread/thread-service");
 const workspaceRuntime = require("../domain/workspace/workspace-service");
+const memberNameCache = require("../domain/group/member-name-cache");
 const runtimeExtensions = require("./runtime-extensions");
 const eventsRuntime = require("./codex-event-service");
 const approvalPolicyRuntime = require("../domain/approval/approval-policy");
@@ -102,6 +103,7 @@ class FeishuBotRuntime {
     this.client = null;
     this.wsClient = null;
     this.feishuAdapter = null;
+    this.memberNameCache = memberNameCache.createMemberNameCache();
     this.pendingChatContextByThreadId = new Map();
     this.pendingChatContextByBindingKey = new Map();
     this.chatTypeByChatId = new Map();
@@ -710,6 +712,28 @@ function attachRuntimeForwarders() {
   proto.resolveChatType = function resolveChatType(chatId) {
     const normalizedChatId = typeof chatId === "string" ? chatId.trim() : "";
     return normalizedChatId ? String(this.chatTypeByChatId.get(normalizedChatId) || "") : "";
+  };
+
+  /**
+   * 解析群聊发送者的显示名字。
+   * 优先用成员缓存；未命中时先预取群成员（一次），仍没有则回退 open_id。
+   */
+  proto.resolveGroupSenderName = async function resolveGroupSenderName(chatId, senderId) {
+    const normalizedChatId = typeof chatId === "string" ? chatId.trim() : "";
+    const normalizedSenderId = typeof senderId === "string" ? senderId.trim() : "";
+    if (!normalizedChatId || !normalizedSenderId) {
+      return "";
+    }
+    const cached = this.memberNameCache.getMemberName(normalizedChatId, normalizedSenderId);
+    if (cached) {
+      return cached;
+    }
+    try {
+      await memberNameCache.prefetchChatMembers(this, normalizedChatId, this.memberNameCache);
+    } catch {
+      // 预取失败不阻断消息处理
+    }
+    return this.memberNameCache.getMemberName(normalizedChatId, normalizedSenderId);
   };
 }
 

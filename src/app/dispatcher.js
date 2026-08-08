@@ -18,6 +18,7 @@ async function onFeishuTextEvent(runtime, event) {
       return;
     }
     normalized = groupResult;
+    normalized = await enrichGroupSenderIdentity(runtime, normalized);
   }
   if (normalized.command === "unsupported_message") {
     await runtime.sendInfoCardMessage({
@@ -134,6 +135,23 @@ async function onFeishuTextEvent(runtime, event) {
     });
     throw error;
   }
+}
+
+/**
+ * 解析群聊发送者名字并注入 normalized（防串台：Agent 知道谁在说话）。
+ * 私聊不注入（本来就是一问一答）。
+ */
+async function enrichGroupSenderIdentity(runtime, normalized) {
+  if (normalized.chatType !== "group") {
+    return normalized;
+  }
+  if (!normalized.senderName) {
+    normalized.senderName = await runtime.resolveGroupSenderName(
+      normalized.chatId,
+      normalized.senderId
+    );
+  }
+  return normalized;
 }
 
 /**
@@ -311,6 +329,7 @@ function onCodexMessage(runtime, message) {
 
 module.exports = {
   applyGroupMentionPolicy,
+  enrichGroupSenderIdentity,
   onCodexMessage,
   onFeishuCardAction,
   onFeishuTextEvent,

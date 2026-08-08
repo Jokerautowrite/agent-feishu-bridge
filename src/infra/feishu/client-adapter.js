@@ -24,6 +24,47 @@ class FeishuClientAdapter {
     };
   }
 
+  /**
+   * 拉取群成员列表（open_id + 名字），用于群聊发送者身份识别。
+   * GET /open-apis/im/v1/chats/{chat_id}/members
+   */
+  async listChatMembers(chatId) {
+    const normalizedChatId = normalizeIdentifier(chatId);
+    if (!normalizedChatId) {
+      throw new Error("Feishu chat members list requires chatId");
+    }
+    let pageToken = "";
+    const members = [];
+    do {
+      const response = await this.client.request({
+        url: `/open-apis/im/v1/chats/${encodeURIComponent(normalizedChatId)}/members`,
+        method: "GET",
+        params: {
+          page_size: 100,
+          member_id_type: "open_id",
+          ...(pageToken ? { page_token: pageToken } : {}),
+        },
+      });
+      assertFeishuBusinessOk(response, "chat.members.list");
+      const items = response?.data?.items || [];
+      for (const item of items) {
+        const openId = normalizeIdentifier(item.member_id || item.open_id);
+        if (!openId) {
+          continue;
+        }
+        members.push({
+          openId,
+          name: normalizeIdentifier(item.name || item.display_name || item.nickname),
+          memberType: normalizeIdentifier(item.member_type || ""),
+        });
+      }
+      pageToken = response?.data?.has_more && response?.data?.page_token
+        ? response.data.page_token
+        : "";
+    } while (pageToken);
+    return members;
+  }
+
   async sendFileMessage({
     chatId,
     fileName,

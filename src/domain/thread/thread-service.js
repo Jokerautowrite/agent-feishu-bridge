@@ -70,7 +70,7 @@ async function ensureThreadAndSendMessage(runtime, { bindingKey, workspaceRoot, 
     console.log(`[codex-im] turn/start first message thread=${createdThreadId}`);
     await runtime.codex.sendUserMessage({
       threadId: createdThreadId,
-      text: buildMessageWithBridgeCapabilities(normalized.text),
+      text: buildMessageWithBridgeCapabilities(normalized),
       attachments: normalized.attachments || [],
       model: codexParams.model || null,
       effort: codexParams.effort || null,
@@ -86,7 +86,7 @@ async function ensureThreadAndSendMessage(runtime, { bindingKey, workspaceRoot, 
     await ensureThreadResumed(runtime, threadId);
     await runtime.codex.sendUserMessage({
       threadId,
-      text: buildMessageWithBridgeCapabilities(normalized.text),
+      text: buildMessageWithBridgeCapabilities(normalized),
       attachments: normalized.attachments || [],
       model: codexParams.model || null,
       effort: codexParams.effort || null,
@@ -113,7 +113,7 @@ async function ensureThreadAndSendMessage(runtime, { bindingKey, workspaceRoot, 
     console.log(`[codex-im] turn/start retry thread=${recreatedThreadId}`);
     await runtime.codex.sendUserMessage({
       threadId: recreatedThreadId,
-      text: buildMessageWithBridgeCapabilities(normalized.text),
+      text: buildMessageWithBridgeCapabilities(normalized),
       attachments: normalized.attachments || [],
       model: codexParams.model || null,
       effort: codexParams.effort || null,
@@ -133,7 +133,7 @@ async function sendCustomModelReply(runtime, { bindingKey, workspaceRoot, normal
   runtime.setPendingThreadContext(localThreadId, normalized);
 
   const history = getOrCreateCustomHistory(runtime, localThreadId);
-  const userText = String(normalized.text || "");
+  const userText = buildGroupSenderIdentityForCustom(normalized, normalized.text);
   if (userText) {
     history.push({ role: "user", content: userText });
   }
@@ -452,15 +452,46 @@ function shouldRecreateThread(error) {
   return message.includes("thread not found") || message.includes("unknown thread");
 }
 
-function buildMessageWithBridgeCapabilities(text) {
+function buildMessageWithBridgeCapabilities(normalized) {
+  const text = String(normalized?.text || "");
+  const isGroup = normalized?.chatType === "group";
+  const senderName = String(normalized?.senderName || "").trim();
+  const senderId = String(normalized?.senderId || "").trim();
+
+  const identityBlock = isGroup
+    ? buildGroupSenderIdentity(senderName, senderId)
+    : "";
+  const body = identityBlock
+    ? `${identityBlock}${text}`
+    : text;
+
   return [
     "<feishu-bridge-capabilities>",
     "[System note: This Feishu/Lark bridge can send current-workspace attachments back to Feishu. If the user asks you to send a local image, file, or audio, create or locate the file under the bound workspace, then include a hidden directive on its own line: [[codex-feishu-send:relative/path/from/workspace]]. The bridge will upload it. Supported routing: images as Feishu image messages, .opus/.mp4 as audio, other files as file messages. Do not use absolute paths in the directive; keep a short human explanation separately.]",
     "[System note: Replies are shown in Feishu CardKit. Prefer scan-friendly Markdown: short paragraphs, ordered/bulleted lists, Markdown tables for comparisons, and fenced code blocks for commands/snippets.]",
     "</feishu-bridge-capabilities>",
     "",
-    text,
+    body,
   ].join("\n");
+}
+
+/**
+ * 群聊发送者身份前缀（防串台）。
+ * 有名字用名字，没名字回退 open_id 后缀，让 Agent 至少能区分是谁发的。
+ */
+function buildGroupSenderIdentity(senderName, senderId) {
+  const label = senderName || (senderId ? `用户${senderId.slice(-6)}` : "群成员");
+  return `【群聊·${label}】`;
+}
+
+function buildGroupSenderIdentityForCustom(normalized, text) {
+  if (normalized?.chatType !== "group") {
+    return String(text || "");
+  }
+  const senderName = String(normalized?.senderName || "").trim();
+  const senderId = String(normalized?.senderId || "").trim();
+  const prefix = buildGroupSenderIdentity(senderName, senderId);
+  return `${prefix}${String(text || "")}`;
 }
 
 module.exports = {
