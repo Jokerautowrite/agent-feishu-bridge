@@ -53,7 +53,6 @@ const card = {
               opt("gpt-5.5（当前）", "gpt-5.5"),
               opt("gpt-5.6-sol", "gpt-5.6-sol"),
               opt("deepseek-v4", "deepseek-v4"),
-              opt("✏️ 自定义模型…", "__custom__"),
             ]),
           ]},
           { tag: "column", width: "weighted", weight: 1, elements: [

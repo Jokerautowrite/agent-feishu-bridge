@@ -19,16 +19,10 @@ const PANEL_ACTION_CONFIG = Object.freeze({
     feedback: "正在设置模型...",
     missingValueText: "未读取到模型选择值，请重新选择。",
   }),
-  add_custom_model: Object.freeze({
-    feedback: "正在打开添加自定义模型表单...",
-  }),
   set_effort: Object.freeze({
     command: "effort",
     feedback: "正在设置推理强度...",
     missingValueText: "未读取到推理强度选择值，请重新选择。",
-  }),
-  add_custom_model_save: Object.freeze({
-    feedback: "正在测试并保存自定义模型...",
   }),
   quick_command: Object.freeze({
     feedback: "正在执行快捷指令...",

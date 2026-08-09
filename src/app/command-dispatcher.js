@@ -53,10 +53,6 @@ const PANEL_CARD_ACTIONS = {
     run: (runtime, normalized) => runtime.showStatusPanel(normalized, { replyToMessageId: normalized.messageId }),
   },
   set_model: buildPanelSelectAction(PANEL_ACTION_CONFIG.set_model),
-  add_custom_model: {
-    feedback: PANEL_ACTION_CONFIG.add_custom_model.feedback,
-    run: (runtime, normalized) => runtime.showCustomModelFormCard(normalized),
-  },
   set_effort: buildPanelSelectAction(PANEL_ACTION_CONFIG.set_effort),
   quick_command: {
     feedback: PANEL_ACTION_CONFIG.quick_command.feedback,
@@ -78,13 +74,6 @@ const FORM_CARD_ACTIONS = {
     run: (runtime, normalized, action) => runtime.bindWorkspaceFromForm(
       normalized,
       action?.formValue?.project_name || ""
-    ),
-  },
-  add_custom_model_save: {
-    feedback: PANEL_ACTION_CONFIG.add_custom_model_save.feedback,
-    run: (runtime, normalized, action) => runtime.saveCustomModelFromForm(
-      normalized,
-      action?.formValue || {}
     ),
   },
 };
@@ -205,10 +194,6 @@ function executeMappedCardAction(runtime, normalized, action, actionMap) {
 async function runCodexCommandFromCard(runtime, normalized, command, value) {
   const normalizedValue = String(value || "").trim();
   if (!normalizedValue) {
-    return;
-  }
-  if (command === "model" && normalizedValue === "__add_custom_model__") {
-    await runtime.showCustomModelFormCard(normalized);
     return;
   }
   const synthetic = {

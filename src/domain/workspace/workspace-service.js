@@ -24,7 +24,6 @@ const {
   inferFeishuFileType,
 } = require("../../shared/media-types");
 const codexMessageUtils = require("../../infra/codex/message-utils");
-const customModelService = require("../custom-model/custom-model-service");
 const { formatFailureText } = require("../../shared/error-text");
 
 const MAX_FEISHU_UPLOAD_FILE_BYTES = 30 * 1024 * 1024;
@@ -299,7 +298,6 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
   const availableCatalog = runtime.sessionStore.getAvailableModelCatalog();
   const availableModels = Array.isArray(availableCatalog?.models) ? availableCatalog.models : [];
   const modelOptions = buildModelSelectOptions(availableModels);
-  const customModelNames = customModelService.listChannels(runtime).map((channel) => channel.name);
   const effortOptions = buildEffortSelectOptions(availableModels, codexParams?.model || "");
   const quickCommandOptions = [
     { label: "📖 /help 帮助", value: "/help" },
@@ -313,7 +311,6 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
       workspaceRoot,
       codexParams,
       modelOptions,
-      customModelNames,
       effortOptions,
       threadId,
       currentThread,
@@ -546,10 +543,7 @@ async function handleModelCommand(runtime, normalized) {
     return;
   }
 
-  const customChannel = customModelService.getChannel(runtime, rawModel);
-  const resolvedModel = customChannel
-    ? customChannel.name
-    : resolveRequestedModel(availableModelsResult.models, rawModel);
+  const resolvedModel = resolveRequestedModel(availableModelsResult.models, rawModel);
   if (!resolvedModel) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
@@ -567,44 +561,6 @@ async function handleModelCommand(runtime, normalized) {
   await runtime.showStatusPanel(normalized, {
     replyToMessageId: normalized.messageId,
     noticeText: `已设置模型：${resolvedModel}`,
-  });
-}
-
-async function showCustomModelFormCard(runtime, normalized) {
-  await runtime.sendInteractiveCard({
-    chatId: normalized.chatId,
-    replyToMessageId: normalized.messageId,
-    card: runtime.buildCustomModelFormCard({
-      backend: process.env.AGENT_BRIDGE_BACKEND || "",
-    }),
-  });
-}
-
-async function saveCustomModelFromForm(runtime, normalized, formValue = {}) {
-  const result = await customModelService.addChannel(runtime, {
-    name: String(formValue.model_name || "").trim(),
-    baseUrl: String(formValue.model_base_url || "").trim(),
-    apiKey: String(formValue.model_api_key || "").trim(),
-  });
-  if (!result.ok) {
-    await runtime.sendInfoCardMessage({
-      chatId: normalized.chatId,
-      replyToMessageId: normalized.messageId,
-      text: `❌ 保存失败：${result.error}`,
-      kind: "error",
-    });
-    return;
-  }
-  const maskedKey = customModelService.maskChannelKey(result.channel);
-  await runtime.sendInfoCardMessage({
-    chatId: normalized.chatId,
-    replyToMessageId: normalized.messageId,
-    text: [
-      `✅ 自定义模型「${result.channel.name}」测试通过并已保存。`,
-      `🔑 Key：${maskedKey}`,
-      "",
-      "在 `/where` 控制台的模型下拉里选择它即可切换使用。",
-    ].join("\n"),
   });
 }
 
@@ -843,8 +799,6 @@ module.exports = {
   handleSendCommand,
   handleUnknownCommand,
   handleWhereCommand,
-  showCustomModelFormCard,
-  saveCustomModelFromForm,
   handleWorkspacesCommand,
   removeWorkspaceByPath,
   sendWelcomeCard,
