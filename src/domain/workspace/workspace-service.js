@@ -803,6 +803,7 @@ module.exports = {
   removeWorkspaceByPath,
   sendWelcomeCard,
   resolveWorkspaceContext,
+  resolveWorkspaceSendTarget,
   showStatusPanel,
   showThreadPicker,
   switchWorkspaceByPath,
@@ -822,6 +823,18 @@ function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
   const normalizedResolvedPath = normalizeWorkspacePath(filePath);
   if (!pathMatchesWorkspaceRoot(normalizedResolvedPath, workspaceRoot)) {
     return { errorText: "文件路径超出了当前项目根目录。" };
+  }
+
+  try {
+    const realWorkspaceRoot = fs.realpathSync.native(workspaceRoot);
+    const realFilePath = fs.realpathSync.native(filePath);
+    if (!pathMatchesWorkspaceRoot(normalizeWorkspacePath(realFilePath), realWorkspaceRoot)) {
+      return { errorText: "文件路径通过链接指向了当前项目之外。" };
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      return { errorText: `无法验证文件真实路径：${error.message}` };
+    }
   }
 
   return {

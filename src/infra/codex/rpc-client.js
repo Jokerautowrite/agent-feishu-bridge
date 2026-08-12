@@ -1,5 +1,7 @@
 const { spawn } = require("child_process");
+const fs = require("fs");
 const os = require("os");
+const path = require("path");
 const WebSocket = require("ws");
 const { normalizeLogLevel, shouldLogCodexTraffic } = require("../../shared/log-level");
 
@@ -55,18 +57,24 @@ class CodexRpcClient {
 
     for (const command of commandCandidates) {
       try {
-        const spawnSpec = buildSpawnSpec(command, this.appServerProfile);
+        const resolvedCommand = IS_WINDOWS ? resolveWindowsCommand(command, this.env) : command;
+        if (!resolvedCommand) {
+          const error = new Error(`Command not found: ${command}`);
+          error.code = "ENOENT";
+          throw error;
+        }
+        const spawnSpec = buildSpawnSpec(resolvedCommand, this.appServerProfile);
         child = spawn(spawnSpec.command, spawnSpec.args, {
           env: { ...this.env },
           stdio: ["pipe", "pipe", "pipe"],
           shell: false,
         });
-        selectedCommand = command;
-        child.once("spawn", () => {
-          console.log(`[codex-im] spawned Codex app-server via ${spawnSpec.command} ${spawnSpec.args.join(" ")}`);
-        });
+        await waitForChildSpawn(child);
+        selectedCommand = resolvedCommand;
+        console.log(`[codex-im] spawned Codex app-server via ${spawnSpec.command} ${spawnSpec.args.join(" ")}`);
         break;
       } catch (error) {
+        child = null;
         lastError = error;
         if (error?.code !== "ENOENT" && error?.code !== "EINVAL") {
           throw error;
@@ -81,6 +89,15 @@ class CodexRpcClient {
     }
 
     this.child = child;
+
+    child.stdin.on("error", (error) => {
+      if (this.child !== child) {
+        return;
+      }
+      this.isReady = false;
+      this.rejectAllPending(error);
+      console.error(`[codex-im] Codex app-server stdin failed: ${error.message}`);
+    });
 
     child.on("error", (error) => {
       if (this.child !== child) {
@@ -116,9 +133,29 @@ class CodexRpcClient {
         return;
       }
       this.isReady = false;
+      this.child = null;
       this.rejectAllPending(new Error(`Codex app-server exited with code ${code}`));
       console.error(`[codex-im] codex app-server exited with code ${code}`);
     });
+  }
+
+  async close() {
+    this.isReady = false;
+    this.rejectAllPending(new Error("Codex RPC client closed"));
+    if (this.socket) {
+      const socket = this.socket;
+      this.socket = null;
+      try {
+        socket.close();
+      } catch {
+        // Best effort during shutdown.
+      }
+    }
+    if (this.child) {
+      const child = this.child;
+      this.child = null;
+      await terminateChild(child);
+    }
   }
 
   async restartSpawn({ appServerProfile = "" } = {}) {
@@ -358,7 +395,7 @@ class CodexRpcClient {
 
     if (parsed && parsed.method) {
       for (const listener of this.messageListeners) {
-        listener(parsed);
+        notifyMessageListener(listener, parsed);
       }
       return;
     }
@@ -379,7 +416,7 @@ class CodexRpcClient {
     }
 
     for (const listener of this.messageListeners) {
-      listener(parsed);
+      notifyMessageListener(listener, parsed);
     }
   }
 
@@ -399,6 +436,75 @@ class CodexRpcClient {
     for (const entry of pending) {
       entry.reject(error);
     }
+  }
+}
+
+function resolveWindowsCommand(command, env = process.env) {
+  const normalized = normalizeNonEmptyString(command).replace(/^"|"$/g, "");
+  if (!normalized) return "";
+  const hasDirectory = path.isAbsolute(normalized) || /[\\/]/.test(normalized);
+  const extensions = path.extname(normalized)
+    ? [""]
+    : String(env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").filter(Boolean);
+  const directories = hasDirectory
+    ? [""]
+    : String(env.PATH || env.Path || "").split(path.delimiter).map((entry) => entry.replace(/^"|"$/g, "")).filter(Boolean);
+  for (const directory of directories) {
+    for (const extension of extensions) {
+      const candidate = hasDirectory ? `${normalized}${extension}` : path.join(directory, `${normalized}${extension}`);
+      try {
+        if (fs.statSync(candidate).isFile()) return candidate;
+      } catch {
+        // Continue through PATH/PATHEXT candidates.
+      }
+    }
+  }
+  return "";
+}
+
+function waitForChildSpawn(child) {
+  return new Promise((resolve, reject) => {
+    const onSpawn = () => {
+      child.removeListener("error", onError);
+      resolve();
+    };
+    const onError = (error) => {
+      child.removeListener("spawn", onSpawn);
+      reject(error);
+    };
+    child.once("spawn", onSpawn);
+    child.once("error", onError);
+  });
+}
+
+function terminateChild(child) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+    child.once("close", finish);
+    child.once("exit", finish);
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      finish();
+    }
+    const timer = setTimeout(finish, 3000);
+    if (typeof timer.unref === "function") timer.unref();
+  });
+}
+
+function notifyMessageListener(listener, message) {
+  try {
+    Promise.resolve(listener(message)).catch((error) => {
+      console.error(`[codex-im] Codex message listener failed: ${error.message}`);
+    });
+  } catch (error) {
+    console.error(`[codex-im] Codex message listener failed: ${error.message}`);
   }
 }
 
@@ -521,28 +627,22 @@ function buildCodexCommandCandidates(configuredCommand) {
   return [DEFAULT_CODEX_COMMAND];
 }
 
-function buildSpawnSpec(command, appServerProfile = "") {
+function buildSpawnSpec(command, appServerProfile = "", platform = os.platform()) {
   const normalizedProfile = normalizeNonEmptyString(appServerProfile);
-  if (IS_WINDOWS) {
-    const args = ["/c", command];
-    if (normalizedProfile) {
-      args.push("--profile", normalizedProfile);
-    }
-    args.push("app-server");
+  const appServerArgs = [];
+  if (normalizedProfile) {
+    appServerArgs.push("--profile", normalizedProfile);
+  }
+  appServerArgs.push("app-server");
+  if (platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
     return {
       command: "cmd.exe",
-      args,
+      args: ["/d", "/s", "/c", command, ...appServerArgs],
     };
   }
-
-  const args = [];
-  if (normalizedProfile) {
-    args.push("--profile", normalizedProfile);
-  }
-  args.push("app-server");
   return {
     command,
-    args,
+    args: appServerArgs,
   };
 }
 
@@ -662,8 +762,10 @@ function buildExecutionPolicies(accessMode, workspaceRoot) {
 }
 
 module.exports = {
+  buildSpawnSpec,
   CodexRpcClient,
   logCodexInboundMessage,
   logCodexOutboundMessage,
   shouldLogCodexTraffic,
+  resolveWindowsCommand,
 };

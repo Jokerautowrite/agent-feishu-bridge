@@ -605,6 +605,7 @@ function normalizeNumber(value) {
 
 module.exports = {
   extractCardAction,
+  extractCardChatId,
   extractCardOperatorSenderId,
   extractCardOperatorSenderIds,
   mapCodexMessageToImEvent,

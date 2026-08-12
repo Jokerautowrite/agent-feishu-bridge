@@ -32,14 +32,26 @@ function readEnv(legacyName) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function expandHomePath(value) {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (normalized === "~") {
+    return os.homedir();
+  }
+  if (normalized.startsWith("~/") || normalized.startsWith("~\\")) {
+    return path.join(os.homedir(), normalized.slice(2));
+  }
+  return normalized;
+}
+
 function readConfig() {
   const mode = process.argv[2] || "";
 
   return {
     mode,
     workspaceAllowlist: readListEnv(readCompatEnv("CODEX_IM_WORKSPACE_ALLOWLIST")),
-    defaultProjectsRoot: readEnv("CODEX_IM_PROJECTS_ROOT")
+    defaultProjectsRoot: expandHomePath(readEnv("CODEX_IM_PROJECTS_ROOT"))
       || path.join(os.homedir(), "projects"),
+    allowedSenderOpenIds: readListEnv(readCompatEnv("CODEX_IM_ALLOWED_SENDER_OPEN_IDS")),
     cardActionSenderAllowlist: readListEnv(readCompatEnv("CODEX_IM_CARD_ACTION_SENDER_ALLOWLIST")),
     botOpenId: readEnv("CODEX_IM_BOT_OPEN_ID"),
     adminOpenIds: readListEnv(readCompatEnv("CODEX_IM_ADMIN_OPEN_IDS")),
@@ -89,7 +101,7 @@ function readConfig() {
     ),
     deliveryLedgerCli: readEnv("CODEX_IM_DELIVERY_LEDGER_CLI"),
     deliveryLedgerPath: readEnv("AGENT_HUB_DELIVERY_LEDGER"),
-    attachmentsDir: readEnv("CODEX_IM_ATTACHMENTS_DIR")
+    attachmentsDir: expandHomePath(readEnv("CODEX_IM_ATTACHMENTS_DIR"))
       || path.join(os.homedir(), ".codex-feishu-bridge", "attachments"),
     maxImageBytes: readPositiveIntEnv(readCompatEnv("CODEX_IM_MAX_IMAGE_BYTES"), 10 * 1024 * 1024),
     maxAttachmentBytes: readPositiveIntEnv(readCompatEnv("CODEX_IM_MAX_ATTACHMENT_BYTES"), 100 * 1024 * 1024),
@@ -97,7 +109,7 @@ function readConfig() {
       readCompatEnv("CODEX_IM_TEXT_ONLY_MODEL_PATTERNS"),
       ["deepseek", "big-pickle"]
     ),
-    sessionsFile: readEnv("CODEX_IM_SESSIONS_FILE")
+    sessionsFile: expandHomePath(readEnv("CODEX_IM_SESSIONS_FILE"))
       || path.join(os.homedir(), ".codex-im", "sessions.json"),
   };
 }

@@ -16,29 +16,63 @@ class SessionStore {
   }
 
   load() {
+    const backupPath = `${this.filePath}.bak`;
     try {
-      const raw = fs.readFileSync(this.filePath, "utf8");
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && parsed.bindings) {
-        this.state = {
-          ...createEmptyState(),
-          ...parsed,
-          bindings: parsed.bindings || {},
-          approvalCommandAllowlistByWorkspaceRoot: parsed.approvalCommandAllowlistByWorkspaceRoot || {},
-          groupAdmins: parsed.groupAdmins || {},
-          availableModelCatalog: parsed.availableModelCatalog || {
-            models: [],
-            updatedAt: "",
-          },
-        };
+      this.state = parseStateFile(this.filePath);
+      return;
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        console.error(`[codex-im] failed to load session state ${this.filePath}: ${error.message}`);
       }
-    } catch {
+    }
+    try {
+      this.state = parseStateFile(backupPath);
+      console.warn(`[codex-im] recovered session state from ${backupPath}`);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        console.error(`[codex-im] failed to load session backup ${backupPath}: ${error.message}`);
+      }
       this.state = createEmptyState();
     }
   }
 
   save() {
-    fs.writeFileSync(this.filePath, JSON.stringify(this.state, null, 2));
+    const temporaryPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    const backupPath = `${this.filePath}.bak`;
+    const payload = `${JSON.stringify(this.state, null, 2)}\n`;
+    let movedOriginal = false;
+    try {
+      const descriptor = fs.openSync(temporaryPath, "wx", 0o600);
+      try {
+        fs.writeFileSync(descriptor, payload, "utf8");
+        fs.fsyncSync(descriptor);
+      } finally {
+        fs.closeSync(descriptor);
+      }
+      if (fs.existsSync(this.filePath)) {
+        try {
+          fs.unlinkSync(backupPath);
+        } catch (error) {
+          if (error?.code !== "ENOENT") throw error;
+        }
+        fs.renameSync(this.filePath, backupPath);
+        movedOriginal = true;
+      }
+      fs.renameSync(temporaryPath, this.filePath);
+    } catch (error) {
+      if (movedOriginal && !fs.existsSync(this.filePath) && fs.existsSync(backupPath)) {
+        fs.renameSync(backupPath, this.filePath);
+      }
+      throw error;
+    } finally {
+      try {
+        fs.unlinkSync(temporaryPath);
+      } catch (error) {
+        if (error?.code !== "ENOENT") {
+          console.warn(`[codex-im] failed to remove temporary session file: ${error.message}`);
+        }
+      }
+    }
   }
 
   getGroupAdmins() {
@@ -295,6 +329,21 @@ class SessionStore {
     return entries[0]?.[0] || "";
   }
 
+}
+
+function parseStateFile(filePath) {
+  const parsed = JSON.parse(fs.readFileSync(filePath, "utf8"));
+  if (!parsed || typeof parsed !== "object" || !parsed.bindings || typeof parsed.bindings !== "object") {
+    throw new Error("session file does not contain a valid bindings object");
+  }
+  return {
+    ...createEmptyState(),
+    ...parsed,
+    bindings: parsed.bindings || {},
+    approvalCommandAllowlistByWorkspaceRoot: parsed.approvalCommandAllowlistByWorkspaceRoot || {},
+    groupAdmins: parsed.groupAdmins || {},
+    availableModelCatalog: parsed.availableModelCatalog || { models: [], updatedAt: "" },
+  };
 }
 
 function normalizeValue(value) {

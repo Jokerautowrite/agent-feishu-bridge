@@ -44,7 +44,7 @@
   },
   "scripts": {
     "feishu-bot": "node ./bin/codex-im.js",
-    "check": "find src bin scripts -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "check": "node ./scripts/check-syntax.js",
     "test:markdown": "node ./scripts/test-assistant-markdown.js",
     "test:card-content": "node ./scripts/test-card-reply-content.js",
     "test:log-level": "node ./scripts/test-log-level.js",
@@ -57,9 +57,13 @@
     "test:group-identity": "node ./scripts/test-group-identity.js",
     "test:group-admin": "node ./scripts/test-group-admin.js",
     "test:group-authz": "node ./scripts/test-group-authz.js",
+    "test:security-boundaries": "node ./scripts/test-security-boundaries.js",
+    "test:session-store": "node ./scripts/test-session-store.js",
+    "test:rpc-lifecycle": "node ./scripts/test-rpc-lifecycle.js",
+    "test:unit": "npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run test:group-service && npm run test:group-identity && npm run test:group-admin && npm run test:group-authz && npm run test:security-boundaries && npm run test:session-store && npm run test:rpc-lifecycle",
     "privacy:scan": "node ./scripts/privacy-scan.js",
     "pack:dry-run": "npm pack --dry-run",
-    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
+    "check:release": "npm run check && npm run test:unit && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.62.0",
