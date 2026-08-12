@@ -10,9 +10,11 @@ function loadEnv() {
   ensureDefaultConfigDirectory();
 
   const envCandidates = [
+    process.env.AGENT_BRIDGE_ENV_FILE,
     path.join(process.cwd(), ".env"),
+    defaultAgentBridgeEnvPath(),
     path.join(os.homedir(), ".codex-im", ".env"),
-  ];
+  ].filter(Boolean);
 
   for (const envPath of envCandidates) {
     if (!fs.existsSync(envPath)) {
@@ -23,6 +25,15 @@ function loadEnv() {
   }
 
   dotenv.config();
+}
+
+function defaultAgentBridgeEnvPath() {
+  if (process.platform === "win32") {
+    const base = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+    return path.join(base, "agent-feishu-bridge", ".env");
+  }
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  return path.join(base, "agent-feishu-bridge", ".env");
 }
 
 function ensureDefaultConfigDirectory() {
@@ -51,4 +62,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { main };
+module.exports = { defaultAgentBridgeEnvPath, loadEnv, main };

@@ -100,6 +100,9 @@ async function resolveWorkspaceContext(
 
 async function handleBindCommand(runtime, normalized) {
   const bindingKey = runtime.sessionStore.buildChatBindingKey(normalized);
+  const previousBinding = runtime.sessionStore.getBinding(bindingKey) || {};
+  const isFirstBinding = !String(previousBinding.activeWorkspaceRoot || "").trim()
+    && Object.keys(previousBinding.threadIdByWorkspaceRoot || {}).length === 0;
   const rawWorkspaceRoot = extractBindPath(normalized.text);
   if (!rawWorkspaceRoot) {
     await runtime.sendInfoCardMessage({
@@ -157,13 +160,16 @@ async function handleBindCommand(runtime, normalized) {
 
   applyDefaultCodexParamsOnBind(runtime, bindingKey, workspaceRoot);
   runtime.sessionStore.setActiveWorkspaceRoot(bindingKey, workspaceRoot);
-  await runtime.refreshWorkspaceThreads(bindingKey, workspaceRoot, normalized);
-  const existingThreadId = runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot);
-  await showStatusPanel(runtime, normalized, {
+  await runtime.sendInfoCardMessage({
+    chatId: normalized.chatId,
     replyToMessageId: normalized.messageId,
-    noticeText: existingThreadId
-      ? "已切换到项目，并恢复原会话上下文。"
-      : "已绑定项目。",
+    text: [
+      `已绑定项目：\n${workspaceRoot}`,
+      "下一条普通消息会创建新线程并立即开始。",
+      isFirstBinding
+        ? "首次部署自检：若卡片按钮、群聊或附件不可用，请核对 README 顶部的“飞书应用必备配置”，并确认修改后已发布飞书应用新版本。"
+        : "",
+    ].filter(Boolean).join("\n\n"),
   });
 }
 
@@ -261,13 +267,10 @@ async function bindWorkspaceFromForm(runtime, normalized, projectName) {
 
   applyDefaultCodexParamsOnBind(runtime, bindingKey, workspaceRoot);
   runtime.sessionStore.setActiveWorkspaceRoot(bindingKey, workspaceRoot);
-  await runtime.refreshWorkspaceThreads(bindingKey, workspaceRoot, normalized);
-  const existingThreadId = runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot);
-  await showStatusPanel(runtime, normalized, {
+  await runtime.sendInfoCardMessage({
+    chatId: normalized.chatId,
     replyToMessageId: normalized.messageId,
-    noticeText: existingThreadId
-      ? "已绑定项目，并恢复原会话上下文。"
-      : "已绑定项目，可以开始对话了。",
+    text: `已绑定项目：\n${workspaceRoot}\n\n下一条普通消息会创建新线程并立即开始。`,
   });
 }
 
@@ -329,14 +332,23 @@ async function sendWelcomeCard(runtime, normalized, { replyToMessageId = "" } = 
   const projectsRoot = normalizeWorkspacePath(
     runtime.config?.defaultProjectsRoot || ""
   ) || "~/projects";
-  await runtime.sendInteractiveCard({
-    chatId: normalized.chatId,
-    replyToMessageId: replyTarget,
-    card: runtime.buildWelcomeCard({
-      backend: process.env.AGENT_BRIDGE_BACKEND || "",
-      projectsRoot,
-    }),
-  });
+  try {
+    await runtime.sendInteractiveCard({
+      chatId: normalized.chatId,
+      replyToMessageId: replyTarget,
+      card: runtime.buildWelcomeCard({
+        backend: process.env.AGENT_BRIDGE_BACKEND || "",
+        projectsRoot,
+      }),
+    });
+  } catch (error) {
+    console.error(`[codex-im] welcome card failed; using text fallback: ${error.message}`);
+    await runtime.sendInfoCardMessage({
+      chatId: normalized.chatId,
+      replyToMessageId: replyTarget,
+      text: `尚未绑定项目。请发送：\n/bind ${projectsRoot}/项目文件夹\n\n首次部署者若收不到卡片或按钮无响应，请核对 README 顶部的“飞书应用必备配置”。`,
+    });
+  }
 }
 
 async function handleMessageCommand(runtime, normalized) {

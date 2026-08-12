@@ -7,6 +7,7 @@ const {
   splitAssistantReplyForDisplay,
 } = require("../../shared/assistant-markdown");
 const { formatFailureText } = require("../../shared/error-text");
+const { splitOutputForCollapsedDisplay } = require("../../shared/output-collapse");
 const {
   buildApprovalCard,
   buildApprovalResolvedCard,
@@ -123,6 +124,7 @@ function splitLongText(text, maxBytes) {
  * | cus-line-red | 底部分割线颜色（高占用） | 上下文 >=90% |
  * | cus-panel-green | 🛠️ 执行耗时面板 描边+标题色 | 固定 |
  * | cus-panel-blue | 💭 推理过程面板 描边+标题色 | 固定 |
+ * | cus-panel-purple | 📄 输出结果面板 描边+标题色 | 固定 |
  * | cus-body-bg | 正文区淡底色（column_set background_style） | 固定 |
  * | cus-foot-grey | footer 模型/强度/耗时 灰字 | 固定 |
  *
@@ -157,6 +159,10 @@ const CARDKIT_CUSTOM_COLORS = {
   "cus-panel-blue": {
     light_mode: "rgba(84,140,255,1)",
     dark_mode: "rgba(84,140,255,1)",
+  },
+  "cus-panel-purple": {
+    light_mode: "rgba(123,97,255,1)",
+    dark_mode: "rgba(164,143,255,1)",
   },
   "cus-foot-grey": {
     light_mode: "rgba(31,35,41,0.85)",
@@ -547,7 +553,7 @@ function applyCompletedAssistantSnapshot(entry, text) {
   // partial snapshot overwrite a longer body, but avoid merging: delta text and
   // snapshot can differ in whitespace/punctuation, and a naive concat would
   // duplicate the answer.
-  if (!accumulated || completedText.length >= accumulated.length) {
+  if (processPrefix || !accumulated || completedText.length >= accumulated.length) {
     entry.answerText = completedText;
     entry.text = completedText;
   }
@@ -889,7 +895,7 @@ function buildCardKitFinalCard(runtime, entry, displayOverride) {
   const footerElements = buildCardKitFooter(runtime, entry);
   const elements = [
     ...buildCardKitStatusPanels(runtime, runKey, entry),
-    buildCardKitBodyContainer(content),
+    ...buildCardKitOutputElements(runtime, content),
   ];
 
   if (footerElements.length) {
@@ -921,6 +927,26 @@ function buildCardKitFinalCard(runtime, entry, displayOverride) {
     },
     body: { elements },
   };
+}
+
+function buildCardKitOutputElements(runtime, content) {
+  const visibleTailPercent = Number(runtime?.config?.outputVisibleTailPercent || 10);
+  const split = splitOutputForCollapsedDisplay(content, {
+    visibleTailRatio: visibleTailPercent / 100,
+  });
+  if (!split.collapsedContent) {
+    return [buildCardKitBodyContainer(split.visibleContent)];
+  }
+  return [
+    buildCardKitCollapsiblePanel({
+      title: "📄 输出结果 · 展开全文",
+      content: buildCardKitBodyContainer(split.collapsedContent),
+      titleColor: "cus-panel-purple",
+      borderColor: "cus-panel-purple",
+      expanded: false,
+    }),
+    buildCardKitBodyContainer(split.visibleContent),
+  ];
 }
 
 function buildCardKitStatusPanels(runtime, runKey, entry) {
@@ -1009,7 +1035,14 @@ function resolveGroupCardReasoningMode(config) {
   return ["none", "brief", "full"].includes(mode) ? mode : "none";
 }
 
-function buildCardKitCollapsiblePanel({ title, content, expanded = false, titleColor, borderColor }) {
+function buildCardKitCollapsiblePanel({
+  title,
+  content,
+  expanded = false,
+  titleColor,
+  borderColor,
+  textSize = "notation",
+}) {
   return {
     tag: "collapsible_panel",
     expanded: Boolean(expanded),
@@ -1028,13 +1061,9 @@ function buildCardKitCollapsiblePanel({ title, content, expanded = false, titleC
     },
     border: { color: borderColor || "grey", corner_radius: "5px" },
     padding: "8px 8px 8px 8px",
-    elements: [
-      {
-        tag: "markdown",
-        content,
-        text_size: "notation",
-      },
-    ],
+    elements: typeof content === "object" && content
+      ? [content]
+      : [{ tag: "markdown", content, text_size: textSize }],
   };
 }
 
@@ -1330,6 +1359,7 @@ function buildLegacyReplyCard(runtime, runKey, entry) {
     usageText: formatUsageText(runtime.latestTokenUsageByThreadId.get(entry.threadId)),
     contextText: formatContextText(runtime.latestTokenUsageByThreadId.get(entry.threadId)),
     toolCountText: formatToolCountText(runtime.toolItemIdsByRunKey.get(runKey)),
+    outputVisibleTailPercent: runtime?.config?.outputVisibleTailPercent,
   });
 }
 
@@ -1637,6 +1667,7 @@ function formatCompactTokens(value) {
 module.exports = {
   addPendingReaction,
   buildCardKitFooter,
+  buildCardKitFinalCard,
   buildLegacyReplyCard,
   clearPendingReactionForBinding,
   clearPendingReactionForThread,

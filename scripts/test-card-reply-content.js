@@ -3,6 +3,7 @@
 const assert = require("node:assert/strict");
 const {
   buildCardKitFooter,
+  buildCardKitFinalCard,
   buildLegacyReplyCard,
   flushAssistantReplyCardNow,
   openCardKitCircuit,
@@ -50,6 +51,19 @@ function createRuntime() {
   runtime.getCodexParamsForWorkspace = () => ({ model: "", effort: "" });
   runtime.pruneRuntimeMapSizes = () => {};
   return runtime;
+}
+
+function collectCardText(value) {
+  if (!value || typeof value !== "object") return "";
+  const parts = [];
+  if (typeof value.content === "string") parts.push(value.content);
+  if (typeof value.text?.content === "string") parts.push(value.text.content);
+  for (const key of ["elements", "columns"]) {
+    for (const child of Array.isArray(value[key]) ? value[key] : []) {
+      parts.push(collectCardText(child));
+    }
+  }
+  return parts.filter(Boolean).join("\n");
 }
 
 async function testCompletedSnapshotPromotesPreviousTextToProcessPanel() {
@@ -128,7 +142,9 @@ async function testReplyCardsUseCapturedRequestModel() {
   assert.doesNotMatch(footerText, /强度 high/);
 
   const legacyCard = buildLegacyReplyCard(runtime, "thread-model:turn-model", entry);
-  const legacyFooter = legacyCard.body.elements.at(-1)?.content || "";
+  const legacyFooter = legacyCard.body.elements
+    .map((element) => element?.content || element?.text?.content || "")
+    .join("\n");
   assert.ok(legacyFooter.includes("gpt-5\\.6-sol"));
   assert.ok(legacyFooter.includes("强度 xhigh"));
   assert.ok(!legacyFooter.includes("gpt-5\\.5"));
@@ -167,7 +183,9 @@ async function testTerminalStateClosesCurrentStreamingCardAfterTurnIdMismatch() 
   });
 
   assert.strictEqual(sentCards.length, 1);
-  const completedFooter = sentCards.at(-1)?.body?.elements?.at(-1)?.content || "";
+  const completedFooter = (sentCards.at(-1)?.body?.elements || [])
+    .map((element) => element?.content || element?.text?.content || "")
+    .join("\n");
   assert.ok(completedFooter.includes("已完成"));
   assert.strictEqual(runtime.replyCardByRunKey.has("thread-terminal:turn-completed"), false);
 }
@@ -204,7 +222,7 @@ async function testStreamingRunStateCreatesCardKitCardBeforeAssistantText() {
   });
 
   assert.equal(cards.length, 1);
-  assert.match(cards[0].body.elements.at(-1).content, /已收到，正在分析和执行/);
+  assert.match(collectCardText(cards[0].body), /已收到，正在分析和执行/);
   assert.equal(cards[0].body.elements[1].expanded, true);
 }
 
@@ -308,24 +326,74 @@ async function testContextFooterWarnings() {
   runtime.latestTokenUsageByThreadId.set(threadId, {
     modelContextWindow: 200000,
     last: {
-      inputTokens: 60000,
+      inputTokens: 140000,
       outputTokens: 1,
-      totalTokens: 60000,
+      totalTokens: 140000,
     },
   });
   const footerText1 = buildCardKitFooter(runtime, entry).map((el) => el.content || "").join("\n");
-  assert.match(footerText1, /上下文偏重/);
+  assert.match(footerText1, /cus-progress-yellow/);
+  assert.match(footerText1, /\(70%\)/);
 
   runtime.latestTokenUsageByThreadId.set(threadId, {
     modelContextWindow: 200000,
     last: {
-      inputTokens: 90000,
+      inputTokens: 180000,
       outputTokens: 1,
-      totalTokens: 90000,
+      totalTokens: 180000,
     },
   });
   const footerText2 = buildCardKitFooter(runtime, entry).map((el) => el.content || "").join("\n");
-  assert.match(footerText2, /建议开新线程/);
+  assert.match(footerText2, /cus-progress-red/);
+  assert.match(footerText2, /\(90%\)/);
+}
+
+function testLongCompletedOutputUsesConfiguredFallbackPercent() {
+  const runtime = createRuntime();
+  runtime.config.outputVisibleTailPercent = 10;
+  const paragraphs = Array.from({ length: 20 }, (_, index) => (
+    `第 ${index + 1} 段：这是用于验证输出折叠效果的正文内容，默认收起前面的大部分分析，只保留结尾重点。`
+  ));
+  const answerText = paragraphs.join("\n\n");
+  const entry = {
+    threadId: "thread-output-collapse",
+    turnId: "turn-output-collapse",
+    chatId: "chat-output-collapse",
+    state: "completed",
+    answerText,
+    startedAt: Date.now() - 1000,
+  };
+  const card = buildCardKitFinalCard(runtime, entry);
+  const outputPanel = card.body.elements[2];
+  const visibleTail = card.body.elements[3];
+  assert.strictEqual(outputPanel.tag, "collapsible_panel");
+  assert.strictEqual(outputPanel.expanded, false);
+  assert.match(outputPanel.header.title.content, /输出结果/);
+  assert.strictEqual(outputPanel.elements[0].background_style, "cus-body-bg");
+  const collapsedText = outputPanel.elements[0].columns[0].elements[0].content;
+  assert.match(collapsedText, /第 1 段/);
+  assert.doesNotMatch(collapsedText, /第 20 段/);
+  assert.match(visibleTail.columns[0].elements[0].content, /第 20 段/);
+}
+
+function testLongCompletedOutputShowsSemanticConclusion() {
+  const runtime = createRuntime();
+  const answerText = [
+    ...Array.from({ length: 20 }, (_, index) => `分析 ${index + 1}：这里是较长的调查和验证内容，用于占据正文的大部分篇幅，并验证当前实现是否符合预期。`),
+    "最终结论：只显示这一段和后面的操作建议，不再机械地固定显示最后 20%。",
+    "下一步：确认样式后启用到正式飞书桥。",
+  ].join("\n\n");
+  const card = buildCardKitFinalCard(runtime, {
+    threadId: "thread-smart-conclusion",
+    turnId: "turn-smart-conclusion",
+    chatId: "chat-smart-conclusion",
+    state: "completed",
+    answerText,
+  });
+  const visibleTail = card.body.elements[3].columns[0].elements[0].content;
+  assert.match(visibleTail, /^最终结论/);
+  assert.match(visibleTail, /下一步/);
+  assert.doesNotMatch(visibleTail, /分析 12/);
 }
 
 (async () => {
@@ -337,6 +405,8 @@ async function testContextFooterWarnings() {
   testAttachmentClassification();
   testCardKitCircuitBreakerRecoversAfterCooldown();
   await testContextFooterWarnings();
+  testLongCompletedOutputUsesConfiguredFallbackPercent();
+  testLongCompletedOutputShowsSemanticConclusion();
   console.log("card reply content fixtures ok");
 })().catch((error) => {
   console.error(error);

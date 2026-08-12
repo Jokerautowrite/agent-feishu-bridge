@@ -1,5 +1,6 @@
 ﻿
 const { sanitizeAssistantMarkdown } = require("../../shared/assistant-markdown");
+const { splitOutputForCollapsedDisplay } = require("../../shared/output-collapse");
 const { normalizeText, resolveEffectiveModelForEffort } = require("../../shared/model-catalog");
 
 // UI card builders extracted from feishu-bot runtime
@@ -141,7 +142,7 @@ function buildApprovalCommandPreviewElements(commandPreview) {
   ];
 }
 
-function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "", model = "", effort = "", toolText = "", thinkingText = "", usageText = "", contextText = "", toolCountText = "" }) {
+function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "", model = "", effort = "", toolText = "", thinkingText = "", usageText = "", contextText = "", toolCountText = "", outputVisibleTailPercent = 10 }) {
   const normalizedState = state || "streaming";
   const content = typeof text === "string" && text.trim()
     ? text.trim()
@@ -183,6 +184,7 @@ function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "",
     contextText,
     toolCountText,
   });
+  const outputElements = buildLegacyOutputElements(content, normalizedState, outputVisibleTailPercent);
 
   return {
     schema: "2.0",
@@ -256,17 +258,53 @@ function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "",
             },
           ],
         },
-        {
-          tag: "div",
-          text: {
-            tag: "lark_md",
-            content: sanitizeAssistantMarkdown(content),
-          },
-        },
+        ...outputElements,
         ...footerElements,
       ],
     },
   };
+}
+
+function buildLegacyOutputElements(content, state, outputVisibleTailPercent) {
+  const text = sanitizeAssistantMarkdown(content);
+  if (state !== "completed" || Array.from(text).length < 500) {
+    return [{ tag: "div", text: { tag: "lark_md", content: text } }];
+  }
+  const safePercent = Number.isFinite(Number(outputVisibleTailPercent))
+    ? Number(outputVisibleTailPercent)
+    : 10;
+  const { collapsedContent, visibleContent } = splitOutputForCollapsedDisplay(text, {
+    visibleTailRatio: safePercent / 100,
+  });
+  if (!collapsedContent || !visibleContent) {
+    return [{ tag: "div", text: { tag: "lark_md", content: text } }];
+  }
+  return [
+    {
+      tag: "collapsible_panel",
+      expanded: false,
+      header: {
+        title: { tag: "plain_text", content: "📄 输出结果 · 展开全文" },
+        icon: { tag: "standard_icon", token: "down-small-ccm_outlined", size: "16px 16px" },
+        icon_position: "follow_text",
+        icon_expanded_angle: -180,
+      },
+      border: { color: "grey", corner_radius: "5px" },
+      padding: "8px 8px 8px 8px",
+      elements: [{
+        tag: "column_set",
+        flex_mode: "none",
+        background_style: "grey",
+        columns: [{
+          tag: "column",
+          width: "weighted",
+          weight: 1,
+          elements: [{ tag: "markdown", content: collapsedContent, text_size: "normal_v2" }],
+        }],
+      }],
+    },
+    { tag: "div", text: { tag: "lark_md", content: visibleContent } },
+  ];
 }
 
 function buildAssistantReplyIntro(incomingText) {
@@ -416,52 +454,17 @@ function buildWelcomeCard({
     { tag: "markdown", content: buildAgentLine(backend), text_size: "normal" },
     {
       tag: "markdown",
-      content: "绑定项目后即可开始对话，只需填写文件夹名：",
-      text_size: "notation",
-    },
-    {
-      tag: "form_container",
-      name: "bind_form",
-      elements: [
-        {
-          tag: "column_set",
-          flex_mode: "none",
-          columns: [
-            {
-              tag: "column",
-              width: "weighted",
-              weight: 2,
-              elements: [
-                {
-                  tag: "input",
-                  name: "project_name",
-                  placeholder: {
-                    tag: "plain_text",
-                    content: `文件夹名，自动补全为 ${projectsRoot}/…`,
-                  },
-                },
-              ],
-            },
-            {
-              tag: "column",
-              width: "weighted",
-              weight: 1,
-              elements: [
-                buildFormSubmitButton({
-                  name: "submit_bind",
-                  text: "🔗 绑定",
-                  value: { kind: "form", action: "bind_project" },
-                  type: "primary",
-                }),
-              ],
-            },
-          ],
-        },
-      ],
+      content: `尚未绑定项目。请直接发送：\n\`/bind ${escapeCardMarkdown(projectsRoot)}/项目文件夹\``,
+      text_size: "normal",
     },
     {
       tag: "markdown",
-      content: `📌 自动补全到 \`${escapeCardMarkdown(projectsRoot)}/文件夹名\`，也可输入绝对路径`,
+      content: `📌 也可以只填写文件夹名，自动补全到 \`${escapeCardMarkdown(projectsRoot)}/文件夹名\``,
+      text_size: "notation",
+    },
+    {
+      tag: "markdown",
+      content: "🧭 首次部署提示：看到此卡说明消息长连接已连通；若按钮、群聊或附件异常，请核对 README 顶部的“飞书应用必备配置”。",
       text_size: "notation",
     }
   );

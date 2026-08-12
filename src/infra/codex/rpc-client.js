@@ -111,6 +111,15 @@ class CodexRpcClient {
       }
     });
 
+    child.stdin.on("error", (error) => {
+      if (this.child !== child) {
+        return;
+      }
+      this.isReady = false;
+      this.rejectAllPending(error);
+      console.error(`[codex-im] Codex app-server stdin failed: ${error.message}`);
+    });
+
     child.on("close", (code) => {
       if (this.child !== child) {
         return;
@@ -358,7 +367,7 @@ class CodexRpcClient {
 
     if (parsed && parsed.method) {
       for (const listener of this.messageListeners) {
-        listener(parsed);
+        this.notifyMessageListener(listener, parsed);
       }
       return;
     }
@@ -379,7 +388,24 @@ class CodexRpcClient {
     }
 
     for (const listener of this.messageListeners) {
-      listener(parsed);
+      this.notifyMessageListener(listener, parsed);
+    }
+  }
+
+  notifyMessageListener(listener, message) {
+    try {
+      const result = listener(message);
+      if (result && typeof result.catch === "function") {
+        result.catch((error) => {
+          console.error(
+            `[codex-im] Codex event listener rejected method=${message?.method || "-"}: ${formatError(error)}`
+          );
+        });
+      }
+    } catch (error) {
+      console.error(
+        `[codex-im] Codex event listener failed method=${message?.method || "-"}: ${formatError(error)}`
+      );
     }
   }
 
@@ -599,6 +625,13 @@ function normalizeImageAttachments(attachments) {
       ...attachment,
       filePath: normalizeNonEmptyString(attachment.filePath),
     }));
+}
+
+function formatError(error) {
+  if (error instanceof Error) {
+    return error.stack || error.message;
+  }
+  return String(error);
 }
 
 function buildTurnStartParams({ threadId, input, model, effort, accessMode, workspaceRoot }) {

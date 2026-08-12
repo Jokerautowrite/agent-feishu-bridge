@@ -22,24 +22,17 @@ async function resolveWorkspaceThreadState(runtime, {
   normalized,
   autoSelectThread = true,
 }) {
-  const threads = await refreshWorkspaceThreads(runtime, bindingKey, workspaceRoot, normalized);
   const selectedThreadId = runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot);
-  const binding = runtime.sessionStore.getBinding(bindingKey) || {};
-  const shouldAutoSelectThread = autoSelectThread && binding.threadScopedBinding !== true;
-  const threadId = selectedThreadId || (shouldAutoSelectThread ? (threads[0]?.id || "") : "");
-  if (!selectedThreadId && threadId) {
-    runtime.sessionStore.setThreadIdForWorkspace(
-      bindingKey,
-      workspaceRoot,
-      threadId,
-      codexMessageUtils.buildBindingMetadata(normalized)
-    );
+  if (selectedThreadId) {
+    runtime.setThreadBindingKey(selectedThreadId, bindingKey);
+    runtime.setThreadWorkspaceRoot(selectedThreadId, workspaceRoot);
+    return { threads: [], threadId: selectedThreadId, selectedThreadId };
   }
-  if (threadId) {
-    runtime.setThreadBindingKey(threadId, bindingKey);
-    runtime.setThreadWorkspaceRoot(threadId, workspaceRoot);
-  }
-  return { threads, threadId, selectedThreadId };
+
+  // Avoid thread/list on first use. Some Windows app-server builds terminate
+  // while scanning a large global history; a fresh binding should instead
+  // create a fresh workspace thread on the first ordinary message.
+  return { threads: [], threadId: "", selectedThreadId: "" };
 }
 
 async function ensureThreadAndSendMessage(runtime, { bindingKey, workspaceRoot, normalized, threadId }) {
@@ -338,7 +331,9 @@ function isSupportedThreadSourceKind(sourceKind) {
 
 function shouldRecreateThread(error) {
   const message = String(error?.message || "").toLowerCase();
-  return message.includes("thread not found") || message.includes("unknown thread");
+  return message.includes("thread not found")
+    || message.includes("unknown thread")
+    || message.includes("no rollout found for thread id");
 }
 
 /**

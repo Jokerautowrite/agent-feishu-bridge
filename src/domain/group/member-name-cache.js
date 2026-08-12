@@ -1,7 +1,7 @@
 /**
  * 群成员名字缓存（open_id → 名字）。
  *
- * 设计参考社区版插件（@larksuite/openclaw-lark）：
+ * 设计参考社区版飞书机器人插件：
  * 1. 群成员接口预取：GET /open-apis/im/v1/chats/{chat_id}/members
  * 2. LRU 缓存 + TTL，避免每次消息都请求飞书 API
  * 3. 空名也缓存（无权限时防止反复请求）

@@ -11,6 +11,49 @@
 飞书消息 -> 本机 Agent 后端 -> 飞书回复（流式卡片）
 ```
 
+> [!IMPORTANT]
+> **先配置飞书应用，再启动桥。** 这是最容易漏掉、也会导致机器人“完全没回复”的步骤。
+> 本桥的长连接模式要求使用**企业自建应用**。
+
+## 飞书应用必备配置（先做这一步）
+
+在[飞书开放平台](https://open.feishu.cn/app)创建企业自建应用，然后依次完成：
+
+1. 在“添加应用能力”中启用**机器人**。
+2. 在“权限管理”中开通下表的基础权限。
+3. 在“事件与回调”中，把**事件订阅**和**回调订阅**都设为“使用长连接接收”。
+4. 添加事件与回调后，创建并发布新版本，让配置对实际使用者生效。
+
+基础权限：
+
+| 用途 | 权限标识 | 是否必需 |
+| --- | --- | --- |
+| 以应用身份回复消息 | `im:message:send_as_bot` | 必需 |
+| 接收用户发给机器人的单聊消息 | `im:message.p2p_msg:readonly` | 单聊必需 |
+| 接收群聊中 @ 机器人的消息 | `im:message.group_at_msg:readonly` | 群聊必需 |
+| 创建与更新流式卡片 | `cardkit:card:write` | 必需 |
+| 获取卡片信息 | `cardkit:card:read` | 必需 |
+
+事件与回调：
+
+| 类型 | 名称 | 标识 | 接收方式 |
+| --- | --- | --- | --- |
+| 事件订阅 | 接收消息 v2.0 | `im.message.receive_v1` | 长连接 |
+| 回调订阅 | 卡片回传交互 | `card.action.trigger` | 长连接 |
+
+按功能追加：
+
+| 功能 | 权限标识 |
+| --- | --- |
+| 消息处理中显示/删除表情状态 | `im:message.reactions:write_only` |
+| 接收或发送图片、文件、音频 | `im:resource` |
+
+> 能收到文字回复，但卡片按钮没有反应：重点检查 `card.action.trigger` 和回调订阅长连接。
+> 完全收不到消息：重点检查机器人能力、`im.message.receive_v1`、消息权限以及应用版本是否已发布。
+> 官方参考：[接收消息事件](https://open.feishu.cn/document/server-docs/im-v1/message/events/receive)、
+> [使用长连接接收事件](https://open.feishu.cn/document/server-docs/event-subscription-guide/event-subscription-configure-/request-url-configuration-case)、
+> [处理卡片回调](https://open.feishu.cn/document/server-side-sdk/nodejs-sdk/handling-callbacks)。
+
 > 定位说明：本仓库 fork 自上游 `codex-feishu-bridge`，已做自有化改造，
 > 升级为多 Agent 公用桥（AgentHub 插件目录：`agent-hub/plugins/agent-bridge`）。
 > 支持多后端，通过统一环境变量 `AGENT_BRIDGE_BACKEND` 切换，
@@ -61,6 +104,10 @@ agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
 每个颜色都支持 `light_mode`（浅色主题）与 `dark_mode`（深色主题）
 两套值，格式为 `rgba(r,g,b,a)`，`a` 是透明度（0~1）。
 
+长回复完成后会优先识别“结论、总结、建议、下一步”等结尾段落并直接显示，
+其余正文默认收进“输出结果”面板。没有识别到明确结论时，默认显示最后 10%；
+可通过 `AGENT_BRIDGE_OUTPUT_VISIBLE_TAIL_PERCENT=10` 调整，允许范围为 5~50。
+
 | 参数名 | 作用 | 变档逻辑 |
 | --- | --- | --- |
 | `cus-progress-green` | 进度条实心格（低占用） | 上下文 <70% |
@@ -93,23 +140,43 @@ agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
 
 | 参数 | 说明 | 位置 |
 | --- | --- | --- |
-| `CODEX_IM_PROJECTS_ROOT` | 绑定文件夹名的自动补全根目录，默认 `~/projects` | `.env` / 环境变量 |
+| `AGENT_BRIDGE_PROJECTS_ROOT` | 绑定文件夹名的自动补全根目录，默认 `~/projects` | `.env` / 环境变量 |
 | 快捷指令菜单项 | `showStatusPanel` 内 `quickCommandOptions` | `src/domain/workspace/workspace-service.js` |
 | 智能体标识 | `AGENT_BRIDGE_BACKEND`（codex/opencode/claude/chuang），控制台自动识别 | `.env` |
-| 欢迎卡结构 | `buildWelcomeCard`（绑定表单） | `src/presentation/card/builders.js` |
+| 欢迎卡结构 | `buildWelcomeCard`（命令引导） | `src/presentation/card/builders.js` |
 
 绑定输入规则：`/bind /绝对路径` 照旧；`/bind 文件夹名` 自动补全为
-`${CODEX_IM_PROJECTS_ROOT}/文件夹名`；也支持欢迎卡表单直接绑定。
+`${AGENT_BRIDGE_PROJECTS_ROOT}/文件夹名`。首次绑定成功时还会提醒部署者检查飞书应用配置。
 
-## 快速开始
+## 一行安装（Windows / Linux / macOS）
 
-```sh
-npm install
-cp .env.example .env   # 填飞书 APP_ID / APP_SECRET
-npm run feishu-bot
+前置条件：已安装 Git、Node.js 18+，以及准备接入的 Agent CLI（Codex、OpenCode或Claude Code）。
+安装器会交互询问飞书 App ID、App Secret、Agent后端和项目根目录；重复运行会安全升级并保留已有私有配置。
+
+Windows PowerShell：
+
+```powershell
+irm https://raw.githubusercontent.com/Jokerautowrite/agent-feishu-bridge/main/install.ps1 | iex
 ```
 
-> 飞书后台记得把「事件订阅」「回调订阅」都设为**长连接**，否则消息进不来。
+Linux / macOS：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Jokerautowrite/agent-feishu-bridge/main/install.sh | bash
+```
+
+安装器会使用各系统的用户级常驻机制，无需管理员权限：
+
+| 系统 | 常驻方式 | 默认配置位置 |
+| --- | --- | --- |
+| Windows | 当前用户启动项 | `%LOCALAPPDATA%\agent-feishu-bridge\.env` |
+| Linux | systemd user service | `~/.config/agent-feishu-bridge/.env` |
+| macOS | LaunchAgent | `~/.config/agent-feishu-bridge/.env` |
+
+> 多台设备可以重复使用同一条安装命令。若多台设备需要同时在线，建议每台设备使用不同的飞书自建应用；
+> 飞书长连接采用集群投递，同一 App ID 的多个客户端不会同时收到同一条消息，而是由其中一个客户端接收。
+>
+> 如果安装后飞书没有任何回复，请先回到README顶部逐项核对“飞书应用必备配置”。
 
 ## 它能做什么
 
@@ -134,7 +201,7 @@ npm run feishu-bot
 - 不绑定任何特定团队的项目中枢或自动化系统。
 - 不携带任何密钥、token、私有 ID、本地日志或个人工作区数据。
 
-## 安装
+## 手动安装
 
 ```sh
 npm install
@@ -156,6 +223,15 @@ FEISHU_APP_ID=cli_xxxxxxxxxxxxxxxxx
 FEISHU_APP_SECRET=xxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
+Codex 默认参数示例：
+
+```text
+AGENT_BRIDGE_DEFAULT_CODEX_MODEL=gpt-5.3-codex
+AGENT_BRIDGE_DEFAULT_CODEX_EFFORT=medium
+AGENT_BRIDGE_DEFAULT_CODEX_ACCESS_MODE=default
+AGENT_BRIDGE_ACTIVE_TURN_FOLLOW_UP_MODE=steer
+```
+
 ### Opencode 后端
 
 用 opencode serve 当后端（复用本机 OpenCode 会话，模型走 opencode.json 配置）：
@@ -172,11 +248,6 @@ OPENCODE_SERVER_URL=http://127.0.0.1:4096
 ```
 
 依赖：`@opencode-ai/sdk`（已加入 package.json）。SSE 事件订阅走官方 SDK，与 opencode-lark 同源。
-CODEX_IM_DEFAULT_CODEX_MODEL=gpt-5.3-codex
-CODEX_IM_DEFAULT_CODEX_EFFORT=medium
-CODEX_IM_DEFAULT_CODEX_ACCESS_MODE=default
-CODEX_IM_ACTIVE_TURN_FOLLOW_UP_MODE=steer
-```
 
 图片和附件会下载到本机私有缓存，默认位置：
 
@@ -186,58 +257,43 @@ CODEX_IM_ACTIVE_TURN_FOLLOW_UP_MODE=steer
 
 配置加载顺序：
 
-1. 当前目录的 `.env`
-2. `~/.codex-im/.env`
-3. 当前 shell 环境变量
+1. 已存在的当前shell环境变量
+2. `AGENT_BRIDGE_ENV_FILE` 指定的配置文件
+3. 当前目录的 `.env`
+4. 系统标准配置目录（Windows为 `%LOCALAPPDATA%\agent-feishu-bridge\.env`，Linux/macOS为 `~/.config/agent-feishu-bridge/.env`）
+5. 兼容旧版的 `~/.codex-im/.env`
 
 ## 常用命令
 
-- `/codex bind /absolute/path`
-- `/codex where`
-- `/codex workspace`
-- `/codex remove /absolute/path`
-- `/codex send <relative-file-path>`
-- `/codex switch <threadId>`
-- `/codex message`
-- `/codex new`
-- `/codex stop`
-- `/codex model`
-- `/codex model update`
-- `/codex model <modelId>`
-- `/codex effort`
-- `/codex effort <low|medium|high|xhigh|max|ultra>`
-- `/codex profile`
-- `/codex profile main`
-- `/codex approve`
-- `/codex approve workspace`
-- `/codex reject`
-- `/codex help`
+- `/bind /absolute/path`
+- `/where`
+- `/workspace`
+- `/remove /absolute/path`
+- `/send <relative-file-path>`
+- `/switch <threadId>`
+- `/message`
+- `/new`
+- `/stop`
+- `/model`
+- `/model update`
+- `/model <modelId>`
+- `/effort`
+- `/effort <low|medium|high|xhigh|max|ultra>`
+- `/profile`
+- `/profile main`
+- `/approve`
+- `/approve workspace`
+- `/reject`
+- `/help`
 
-## 飞书应用要求
-
-事件订阅：
-
-| 事件 | 标识 |
-| --- | --- |
-| 接收消息 | `im.message.receive_v1` |
-| 卡片回传交互 | `card.action.trigger` |
-
-推荐权限：
-
-| 权限 | 标识 |
-| --- | --- |
-| 创建与更新卡片 | `cardkit:card:write` |
-| 获取卡片信息 | `cardkit:card:read` |
-| 以应用身份发消息 | `im:message:send_as_bot` |
-| 读取用户发给机器人的单聊消息 | `im:message.p2p_msg:readonly` |
-| 发送/删除表情回复 | `im:message.reactions:write_only` |
-| 获取与上传图片或文件资源 | `im:resource` |
+旧写法 `/codex bind ...`、`/claude bind ...`、`/opencode bind ...` 仍兼容，
+但新文档和新部署统一使用上面的通用 `/` 命令。
 
 ## 媒体附件
 
 - 收图：飞书/Lark 图片会下载到本地私有缓存，并作为 Agent 原生图片输入进入当前轮。
 - 收文件/语音：文件和音频会下载到本地私有缓存；文本类文件会附带安全预览，二进制文件和音频先传元信息与本地路径。
-- 手动回传：`/codex send <当前项目下的相对文件路径>` 会自动按类型发送，图片走飞书图片消息，`.opus/.mp4` 走音频消息，其他文件走普通文件消息。
+- 手动回传：`/send <当前项目下的相对文件路径>` 会自动按类型发送，图片走飞书图片消息，`.opus/.mp4` 走音频消息，其他文件走普通文件消息。
 - 自动回传：Agent 回复中可包含独立一行隐藏指令 `[[codex-feishu-send:relative/path/from/workspace]]`，桥会上传该文件并从飞书发出，同时从展示文本中移除指令。
 
 ## 开发检查

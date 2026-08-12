@@ -139,6 +139,7 @@ class FeishuBotRuntime {
       ledgerPath: config.deliveryLedgerPath,
     });
     this.staleTurnWatchdog = null;
+    this.runtimeKeepalive = null;
     this.extensions = runtimeExtensions;
     this.codex.onMessage((message) => appDispatcher.onCodexMessage(this, message));
   }
@@ -154,6 +155,7 @@ class FeishuBotRuntime {
     await this.refreshAvailableModelCatalogAtStartup();
     this.startLongConnection();
     this.startStaleTurnWatchdog();
+    this.startRuntimeKeepalive();
     console.log(`[codex-im] feishu-bot runtime ready for app ${maskSecret(this.config.feishu.appId)}`);
   }
 
@@ -255,8 +257,24 @@ class FeishuBotRuntime {
   }
 
   async refreshAvailableModelCatalogAtStartup() {
-    const response = await this.codex.listModels();
-    const models = extractModelCatalogFromListResponse(response);
+    const cachedCatalog = this.sessionStore.getAvailableModelCatalog();
+    let models = [];
+    try {
+      const response = await Promise.race([
+        this.codex.listModels(),
+        new Promise((_, reject) => setTimeout(
+          () => reject(new Error("model/list startup refresh timed out after 10000ms")),
+          10000
+        )),
+      ]);
+      models = extractModelCatalogFromListResponse(response);
+    } catch (error) {
+      models = Array.isArray(cachedCatalog?.models) ? cachedCatalog.models : [];
+      if (!models.length) {
+        throw error;
+      }
+      console.warn(`[codex-im] model catalog refresh unavailable; using cached catalog: ${error.message}`);
+    }
     if (!models.length) {
       throw new Error("model/list returned no models at startup");
     }
@@ -290,6 +308,30 @@ class FeishuBotRuntime {
     if (typeof this.staleTurnWatchdog.unref === "function") {
       this.staleTurnWatchdog.unref();
     }
+  }
+
+  startRuntimeKeepalive() {
+    if (this.runtimeKeepalive) {
+      return;
+    }
+
+    // The Feishu SDK unrefs its heartbeat timers on Windows, so a healthy
+    // long-connection runtime can otherwise fall out of Node's event loop.
+    // Keep exactly one referenced timer alive for the lifetime of the bridge.
+    this.runtimeKeepalive = setInterval(() => {
+      if (this.codex.mode !== "spawn" || !this.codex.child) {
+        return;
+      }
+      const childExited = this.codex.child.exitCode !== null || this.codex.child.signalCode !== null;
+      if (!childExited) {
+        return;
+      }
+      console.error("[codex-im] Codex app-server stopped; exiting for supervisor restart");
+      clearInterval(this.runtimeKeepalive);
+      this.runtimeKeepalive = null;
+      process.exit(1);
+    }, 5000);
+    console.log("[codex-im] runtime keepalive enabled intervalMs=5000");
   }
 
   async clearStaleTurns(timeoutMs) {

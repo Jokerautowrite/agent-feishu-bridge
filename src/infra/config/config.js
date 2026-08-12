@@ -72,6 +72,12 @@ function readConfig() {
     defaultWorkspaceId: readEnv("CODEX_IM_DEFAULT_WORKSPACE_ID") || "default",
     feishuStreamingOutput: readBooleanEnv(readCompatEnv("CODEX_IM_FEISHU_STREAMING_OUTPUT"), true),
     feishuCardKitStreaming: readBooleanEnv(readCompatEnv("CODEX_IM_FEISHU_CARDKIT_STREAMING"), true),
+    outputVisibleTailPercent: readBoundedIntEnv(
+      readCompatEnv("CODEX_IM_OUTPUT_VISIBLE_TAIL_PERCENT"),
+      10,
+      5,
+      50
+    ),
     cardKitFailureCooldownMs: readNonNegativeIntEnv(
       readCompatEnv("CODEX_IM_CARDKIT_FAILURE_COOLDOWN_MS"),
       5 * 60 * 1000
@@ -166,6 +172,17 @@ function readNonNegativeIntEnv(name, defaultValue) {
   }
   const parsed = Number.parseInt(normalized, 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : defaultValue;
+}
+
+function readBoundedIntEnv(name, defaultValue, minimum, maximum) {
+  const rawValue = process.env[name];
+  if (typeof rawValue !== "string" || !rawValue.trim()) {
+    return defaultValue;
+  }
+  const parsed = Number.parseInt(rawValue.trim(), 10);
+  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum
+    ? parsed
+    : defaultValue;
 }
 
 function readAccessModeEnv(name) {
