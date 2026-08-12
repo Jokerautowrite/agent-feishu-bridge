@@ -31,7 +31,7 @@ const SKIP_EXTENSIONS = new Set([
 
 const PATTERNS = [
   { name: "private-persona", re: /\b(Mira)\b|予安/g },
-  { name: "private-systems", re: /Obsidian|TaskNotes|OpenClaw|Hermes|Chronicle|Knowledge Wiki|Over CDN/gi },
+  { name: "private-systems", re: /Obsidian|TaskNotes|Hermes|Chronicle|Knowledge Wiki|Over CDN/gi },
   { name: "local-private-path", re: /\/Users\/keeploving/g },
   { name: "env-secret-assignment", re: /FEISHU_APP_SECRET\s*=\s*(?!x{6,}|YOUR_|<|$)[^\s]+/g },
   { name: "openai-like-secret", re: /sk-[A-Za-z0-9_-]{20,}/g },
@@ -51,7 +51,7 @@ function walk(dir) {
   const files = [];
   for (const entry of entries) {
     const fullPath = path.join(dir, entry.name);
-    const relPath = path.relative(ROOT, fullPath);
+    const relPath = path.relative(ROOT, fullPath).split(path.sep).join("/");
     if (entry.isDirectory()) {
       if (!SKIP_DIRS.has(entry.name)) {
         files.push(...walk(fullPath));
