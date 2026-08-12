@@ -101,6 +101,7 @@ function resolveApprovalPromptContext(runtime, threadId, normalized = null) {
     chatId: normalized?.chatId || existing?.chatId || bindingContext?.chatId || "",
     replyToMessageId: normalized?.messageId || existing?.messageId || bindingContext?.messageId || "",
     threadKey: normalized?.threadKey || existing?.threadKey || bindingContext?.threadKey || "",
+    senderId: normalized?.senderId || existing?.senderId || bindingContext?.senderId || "",
   };
 }
 
@@ -122,6 +123,7 @@ async function sendApprovalPrompt(runtime, {
 
   approval.chatId = context.chatId;
   approval.replyToMessageId = context.replyToMessageId || approval.replyToMessageId || "";
+  approval.requesterSenderId = approval.requesterSenderId || context.senderId || "";
   if (normalized) {
     runtime.setPendingThreadContext(threadId, normalized);
   }

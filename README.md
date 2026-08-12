@@ -172,7 +172,7 @@ OPENCODE_SERVER_URL=http://127.0.0.1:4096
 ```
 
 依赖：`@opencode-ai/sdk`（已加入 package.json）。SSE 事件订阅走官方 SDK，与 opencode-lark 同源。
-CODEX_IM_DEFAULT_CODEX_MODEL=gpt-5.3-codex
+CODEX_IM_DEFAULT_CODEX_MODEL=
 CODEX_IM_DEFAULT_CODEX_EFFORT=medium
 CODEX_IM_DEFAULT_CODEX_ACCESS_MODE=default
 CODEX_IM_ACTIVE_TURN_FOLLOW_UP_MODE=steer
@@ -240,7 +240,17 @@ CODEX_IM_ACTIVE_TURN_FOLLOW_UP_MODE=steer
 - 手动回传：`/codex send <当前项目下的相对文件路径>` 会自动按类型发送，图片走飞书图片消息，`.opus/.mp4` 走音频消息，其他文件走普通文件消息。
 - 自动回传：Agent 回复中可包含独立一行隐藏指令 `[[codex-feishu-send:relative/path/from/workspace]]`，桥会上传该文件并从飞书发出，同时从展示文本中移除指令。
 
+## 安全配置建议
+
+- 用 `AGENT_BRIDGE_ALLOWED_SENDER_OPEN_IDS` 限制可以私聊操作机器人的飞书 `open_id`。
+- 用 `AGENT_BRIDGE_GROUP_ALLOWED_CHATS` 限制允许接入的群；桥会对每条群消息重新校验，而不只在入群时校验。
+- 审批卡默认只允许请求发起者、已配置管理员或群管理员操作；空的卡片白名单不再表示所有人都可审批。
+- `AGENT_BRIDGE_WORKSPACE_ALLOWLIST` 建议配置为可信项目根目录，`/send` 会同时校验真实路径，阻止符号链接逃逸。
+- 模型和推理强度可以留空，桥会使用当前 `codex app-server` 的默认值，避免模型目录升级后无法启动。
+
 ## 开发检查
+
+Windows、Linux 和 macOS 都可以运行相同的发布检查：
 
 ```sh
 npm run check

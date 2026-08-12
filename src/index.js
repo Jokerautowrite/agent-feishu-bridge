@@ -37,7 +37,7 @@ async function main() {
   if (!config.mode || config.mode === "feishu-bot") {
     const runtime = new FeishuBotRuntime(config);
     await runtime.start();
-    return;
+    return runtime;
   }
 
   console.error("Usage: codex-im [feishu-bot]");

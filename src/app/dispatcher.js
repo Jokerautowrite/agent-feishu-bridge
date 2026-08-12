@@ -13,6 +13,13 @@ async function onFeishuTextEvent(runtime, event) {
   if (normalized.chatType && normalized.chatId) {
     runtime.setChatType(normalized.chatId, normalized.chatType);
   }
+  if (!isAuthorizedIncomingMessage(runtime, normalized)) {
+    console.warn(
+      `[codex-im] rejected unauthorized message chat=${normalized.chatId || "-"} `
+      + `sender=${String(normalized.senderId || "").slice(0, 8) || "-"}`
+    );
+    return;
+  }
   if (normalized.chatType === "group") {
     const groupResult = await applyGroupMentionPolicy(runtime, normalized);
     if (!groupResult) {
@@ -189,6 +196,26 @@ async function onFeishuTextEvent(runtime, event) {
     });
     throw error;
   }
+}
+
+function isAuthorizedIncomingMessage(runtime, normalized) {
+  const config = runtime?.config || {};
+  const senderId = String(normalized?.senderId || "").trim();
+  if (!senderId) {
+    return false;
+  }
+
+  if (normalized?.chatType === "group") {
+    const allowedChats = Array.isArray(config.groupAllowedChats) ? config.groupAllowedChats : [];
+    return !allowedChats.length || allowedChats.includes(String(normalized.chatId || "").trim());
+  }
+
+  const allowedSenders = [
+    ...(Array.isArray(config.allowedSenderOpenIds) ? config.allowedSenderOpenIds : []),
+    ...(Array.isArray(config.adminOpenIds) ? config.adminOpenIds : []),
+    ...(Array.isArray(config.superAdminOpenIds) ? config.superAdminOpenIds : []),
+  ];
+  return !allowedSenders.length || allowedSenders.includes(senderId);
 }
 
 /**
@@ -544,6 +571,7 @@ module.exports = {
   applyGroupMentionPolicy,
   checkGroupCommandAuthorization,
   enrichGroupSenderIdentity,
+  isAuthorizedIncomingMessage,
   onCodexMessage,
   onFeishuCardAction,
   onFeishuTextEvent,

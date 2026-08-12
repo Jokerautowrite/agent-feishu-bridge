@@ -128,7 +128,9 @@ async function testReplyCardsUseCapturedRequestModel() {
   assert.doesNotMatch(footerText, /强度 high/);
 
   const legacyCard = buildLegacyReplyCard(runtime, "thread-model:turn-model", entry);
-  const legacyFooter = legacyCard.body.elements.at(-1)?.content || "";
+  const legacyFooter = legacyCard.body.elements
+    .map((element) => element.content || element.text?.content || "")
+    .find((content) => content.includes("gpt-5\\.6-sol")) || "";
   assert.ok(legacyFooter.includes("gpt-5\\.6-sol"));
   assert.ok(legacyFooter.includes("强度 xhigh"));
   assert.ok(!legacyFooter.includes("gpt-5\\.5"));
@@ -167,7 +169,9 @@ async function testTerminalStateClosesCurrentStreamingCardAfterTurnIdMismatch() 
   });
 
   assert.strictEqual(sentCards.length, 1);
-  const completedFooter = sentCards.at(-1)?.body?.elements?.at(-1)?.content || "";
+  const completedFooter = sentCards.at(-1)?.body?.elements
+    ?.map((element) => element.content || element.text?.content || "")
+    .find((content) => content.includes("已完成")) || "";
   assert.ok(completedFooter.includes("已完成"));
   assert.strictEqual(runtime.replyCardByRunKey.has("thread-terminal:turn-completed"), false);
 }
@@ -204,7 +208,7 @@ async function testStreamingRunStateCreatesCardKitCardBeforeAssistantText() {
   });
 
   assert.equal(cards.length, 1);
-  assert.match(cards[0].body.elements.at(-1).content, /已收到，正在分析和执行/);
+  assert.match(JSON.stringify(cards[0]), /已收到，正在分析和执行/);
   assert.equal(cards[0].body.elements[1].expanded, true);
 }
 

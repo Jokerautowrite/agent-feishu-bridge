@@ -151,21 +151,37 @@ class FeishuBotRuntime {
     this.groupAdmins.loadFromSnapshot(this.sessionStore.getGroupAdmins());
     // opencode 后端：SSE 订阅由 connect() 内自动建立（serve 根目录），
     // bind 到其他目录时适配器会按需补订阅。无需在此额外启动。
-    await this.refreshAvailableModelCatalogAtStartup();
     this.startLongConnection();
     this.startStaleTurnWatchdog();
+    this.refreshAvailableModelCatalogAtStartup().catch((error) => {
+      const cached = this.sessionStore.getAvailableModelCatalog();
+      console.warn(
+        `[codex-im] model catalog refresh failed; ${cached?.models?.length ? "using cache" : "commands will use configured defaults"}: ${error.message}`
+      );
+    });
     console.log(`[codex-im] feishu-bot runtime ready for app ${maskSecret(this.config.feishu.appId)}`);
+  }
+
+  async stop() {
+    if (this.staleTurnWatchdog) {
+      clearInterval(this.staleTurnWatchdog);
+      this.staleTurnWatchdog = null;
+    }
+    for (const timer of this.replyFlushTimersByRunKey.values()) {
+      clearTimeout(timer);
+    }
+    this.replyFlushTimersByRunKey.clear();
+    if (this.wsClient && typeof this.wsClient.close === "function") {
+      await Promise.resolve(this.wsClient.close()).catch((error) => {
+        console.warn(`[codex-im] failed to close Feishu connection: ${error.message}`);
+      });
+    }
+    await this.codex.close?.();
   }
 
   validateConfig() {
     if (!this.config.feishu.appId || !this.config.feishu.appSecret) {
       throw new Error("FEISHU_APP_ID and FEISHU_APP_SECRET are required for feishu-bot mode");
-    }
-    if (!String(this.config.defaultCodexModel || "").trim()) {
-      throw new Error("AGENT_BRIDGE_DEFAULT_CODEX_MODEL is required");
-    }
-    if (!String(this.config.defaultCodexEffort || "").trim()) {
-      throw new Error("AGENT_BRIDGE_DEFAULT_CODEX_EFFORT is required");
     }
     if (!String(this.config.defaultCodexAccessMode || "").trim()) {
       throw new Error(
@@ -262,10 +278,10 @@ class FeishuBotRuntime {
     }
     this.sessionStore.setAvailableModelCatalog(models);
     const validatedDefaults = workspaceRuntime.validateDefaultCodexParamsConfig(this, models);
-    if (!validatedDefaults.model) {
+    if (this.config.defaultCodexModel && !validatedDefaults.model) {
       throw new Error(`Invalid AGENT_BRIDGE_DEFAULT_CODEX_MODEL: ${this.config.defaultCodexModel}`);
     }
-    if (!validatedDefaults.effort) {
+    if (this.config.defaultCodexEffort && !validatedDefaults.effort) {
       throw new Error(
         `Invalid AGENT_BRIDGE_DEFAULT_CODEX_EFFORT: ${this.config.defaultCodexEffort} for model ${validatedDefaults.model}`
       );

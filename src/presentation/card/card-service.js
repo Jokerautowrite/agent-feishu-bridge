@@ -257,8 +257,27 @@ async function handleCardAction(runtime, data) {
   const chatType = typeof runtime.resolveChatType === "function"
     ? runtime.resolveChatType(chatId)
     : "";
-  const isAllowedOperator = !senderAllowlist.length
-    || isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType);
+  const approval = action?.kind === "approval"
+    ? runtime.pendingApprovalByThreadId?.get?.(action.threadId)
+    : null;
+  const allowedOperatorIds = [
+    ...senderAllowlist,
+    ...(Array.isArray(runtime.config?.allowedSenderOpenIds) ? runtime.config.allowedSenderOpenIds : []),
+    ...(Array.isArray(runtime.config?.adminOpenIds) ? runtime.config.adminOpenIds : []),
+    ...(Array.isArray(runtime.config?.superAdminOpenIds) ? runtime.config.superAdminOpenIds : []),
+    ...(approval?.requesterSenderId ? [approval.requesterSenderId] : []),
+  ];
+  const isGroupAdmin = chatType === "group"
+    && operatorSenderIds.some((id) => id && runtime.groupAdmins?.isAdmin?.(chatId, id));
+  const isAllowedChat = chatType !== "group"
+    || !(Array.isArray(runtime.config?.groupAllowedChats) && runtime.config.groupAllowedChats.length)
+    || runtime.config.groupAllowedChats.includes(chatId);
+  const isAllowedOperator = isAllowedChat && (
+    isGroupAdmin
+    || (allowedOperatorIds.length
+      ? isAllowedCardOperator(operatorSenderIds, allowedOperatorIds, chatType)
+      : action?.kind !== "approval" && chatType === "p2p")
+  );
   console.log(
     `[codex-im] card callback kind=${action?.kind || "-"} action=${action?.action || "-"} `
     + `thread=${action?.threadId || "-"} request=${action?.requestId || "-"} selected=${action?.selectedValue || "-"}`
@@ -339,16 +358,9 @@ async function handleCardAction(runtime, data) {
 }
 
 function isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType) {
-  const [openId = "", userId = ""] = operatorSenderIds;
-  // 私聊：open_id 随会话变化不可靠，只校验稳定的 user_id。
-  if (chatType === "p2p") {
-    return Boolean(userId && senderAllowlist.includes(userId));
+  if (!Array.isArray(senderAllowlist) || !senderAllowlist.length) {
+    return false;
   }
-  // 群聊：user_id 或 open_id 任一命中即可。
-  if (chatType === "group") {
-    return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
-  }
-  // 未知会话类型：任一命中即可（宽松，避免误锁用户）。
   return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
 }
 
@@ -547,7 +559,7 @@ function applyCompletedAssistantSnapshot(entry, text) {
   // partial snapshot overwrite a longer body, but avoid merging: delta text and
   // snapshot can differ in whitespace/punctuation, and a naive concat would
   // duplicate the answer.
-  if (!accumulated || completedText.length >= accumulated.length) {
+  if (processPrefix || !accumulated || completedText.length >= accumulated.length) {
     entry.answerText = completedText;
     entry.text = completedText;
   }
@@ -1209,7 +1221,7 @@ function buildCardKitFooter(runtime, entry) {
     if (ctx) {
       elements.push({
         tag: "markdown",
-        content: `📝 上下文 ${ctx.usedText}/${ctx.windowText} · ${buildNativeProgressBarText(ctx.pct)} (${ctx.pct}%)`,
+        content: `📝 上下文 ${ctx.usedText}/${ctx.windowText} · ${buildNativeProgressBarText(ctx.pct)} (${ctx.pct}%)${ctx.advisory ? ` · ${ctx.advisory}` : ""}`,
         text_size: "notation",
         margin: "2px 0px 0px 0px",
       });
