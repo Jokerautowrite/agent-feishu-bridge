@@ -113,12 +113,12 @@ APP_SECRET="${FEISHU_APP_SECRET:-$EXISTING_APP_SECRET}"
 if [[ -z "$APP_SECRET" ]]; then
   APP_SECRET="$(prompt_secret 'Feishu App Secret')"
 fi
-BACKEND="${AGENT_BRIDGE_BACKEND:-$(prompt 'Agent backend (codex/opencode/claude/chuang)' "${EXISTING_BACKEND:-codex}")}"
+BACKEND="${AGENT_BRIDGE_BACKEND:-$(prompt 'Agent backend (codex/opencode/claude/chuang/openclaw/hermes/grok)' "${EXISTING_BACKEND:-codex}")}"
 PROJECTS_ROOT="${AGENT_BRIDGE_PROJECTS_ROOT:-$(prompt 'Projects root' "${EXISTING_PROJECTS_ROOT:-$HOME/projects}")}"
 
 [[ -n "$APP_ID" ]] || fail "Feishu App ID is required."
 [[ -n "$APP_SECRET" ]] || fail "Feishu App Secret is required."
-case "$BACKEND" in codex|opencode|claude|chuang) ;; *) fail "Unsupported backend: $BACKEND" ;; esac
+case "$BACKEND" in codex|opencode|claude|chuang|openclaw|hermes|grok) ;; *) fail "Unsupported backend: $BACKEND" ;; esac
 
 AGENT_COMMAND="${AGENT_BRIDGE_CODEX_COMMAND:-$(read_env_value AGENT_BRIDGE_CODEX_COMMAND)}"
 case "$BACKEND" in
@@ -128,6 +128,9 @@ case "$BACKEND" in
     ;;
   opencode) command -v opencode >/dev/null 2>&1 || fail "OpenCode was not found. Install it and start 'opencode serve' first." ;;
   claude) command -v claude >/dev/null 2>&1 || fail "Claude Code was not found. Install/login Claude Code, then rerun." ;;
+  openclaw) command -v openclaw >/dev/null 2>&1 || fail "OpenClaw was not found. Install/login OpenClaw, then rerun." ;;
+  hermes) command -v hermes >/dev/null 2>&1 || fail "Hermes Agent was not found. Install/login Hermes, then rerun." ;;
+  grok) command -v grok >/dev/null 2>&1 || fail "Grok CLI was not found. Install/login Grok, then rerun." ;;
 esac
 
 SESSIONS_FILE="$DATA_HOME/sessions.json"

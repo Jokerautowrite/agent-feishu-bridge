@@ -65,6 +65,9 @@
 > | opencode | `AGENT_BRIDGE_BACKEND=opencode`，需 opencode serve 运行 |
 > | Claude Code | `AGENT_BRIDGE_BACKEND=claude`，走 `claude -p stream-json` |
 > | Chuang（创） | `AGENT_BRIDGE_BACKEND=chuang`，走 Chuang app-server Unix socket |
+> | OpenClaw | `AGENT_BRIDGE_BACKEND=openclaw`，走 `openclaw agent --json` |
+> | Hermes Agent | `AGENT_BRIDGE_BACKEND=hermes`，走 `hermes chat --quiet` |
+> | Grok | `AGENT_BRIDGE_BACKEND=grok`，走 `grok -p --output-format streaming-json` |
 
 > 兼容旧变量：`OPENCODE_BRIDGE_BACKEND` / `CHUANG_BRIDGE_BACKEND` / `CLAUDE_BRIDGE_BACKEND`
 > 仍可识别，新部署一律用 `AGENT_BRIDGE_BACKEND`。
@@ -78,7 +81,8 @@ agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
 ```
 
 - 每个 agent 一个实例，互不干扰：`agent-bridge-codex` / `agent-bridge-opencode` /
-  `agent-bridge-claude` / `agent-bridge-chuang`。
+  `agent-bridge-claude` / `agent-bridge-chuang` / `agent-bridge-openclaw` /
+  `agent-bridge-hermes` / `agent-bridge-grok`。
 - 配置：`~/.config/agent-bridge/agent-bridge-<agent>.env`，后端统一
   `AGENT_BRIDGE_BACKEND=<agent>`。
 - 本机接入别名：`~/.codex/codex-feishu-bridge-current`（软链接，指向代码本体，便于升级切换）。
@@ -142,7 +146,7 @@ agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
 | --- | --- | --- |
 | `AGENT_BRIDGE_PROJECTS_ROOT` | 绑定文件夹名的自动补全根目录，默认 `~/projects` | `.env` / 环境变量 |
 | 快捷指令菜单项 | `showStatusPanel` 内 `quickCommandOptions` | `src/domain/workspace/workspace-service.js` |
-| 智能体标识 | `AGENT_BRIDGE_BACKEND`（codex/opencode/claude/chuang），控制台自动识别 | `.env` |
+| 智能体标识 | `AGENT_BRIDGE_BACKEND`（codex/opencode/claude/chuang/openclaw/hermes/grok），控制台自动识别 | `.env` |
 | 欢迎卡结构 | `buildWelcomeCard`（命令引导） | `src/presentation/card/builders.js` |
 
 绑定输入规则：`/bind /绝对路径` 照旧；`/bind 文件夹名` 自动补全为
@@ -150,7 +154,7 @@ agent-hub/plugins/agent-bridge/         代码本体（独立 git，可开源）
 
 ## 一行安装（Windows / Linux / macOS）
 
-前置条件：已安装 Git、Node.js 18+，以及准备接入的 Agent CLI（Codex、OpenCode或Claude Code）。
+前置条件：已安装 Git、Node.js 18+，以及准备接入的 Agent CLI（Codex、OpenCode、Claude Code、Chuang、OpenClaw、Hermes Agent 或 Grok）。
 安装器会交互询问飞书 App ID、App Secret、Agent后端和项目根目录；重复运行会安全升级并保留已有私有配置。
 
 Windows PowerShell：

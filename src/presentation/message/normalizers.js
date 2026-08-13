@@ -487,7 +487,10 @@ function parseCommand(text) {
   const normalized = text.trim().toLowerCase();
 
   // 命令前缀：通用 / 前缀优先（/bind 等），兼容旧用户 /codex、/claude、/opencode
-  const COMMAND_PREFIXES = ["/codex", "/claude", "/opencode", "/"];
+  const COMMAND_PREFIXES = [
+    "/openclaw", "/opencode", "/claude", "/hermes",
+    "/chuang", "/codex", "/grok", "/",
+  ];
 
   const exactCommands = {
     stop: ["stop"],

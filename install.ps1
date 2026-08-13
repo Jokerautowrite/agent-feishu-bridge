@@ -70,15 +70,18 @@ if ($LASTEXITCODE -ne 0) { throw 'npm dependency installation failed.' }
 
 $AppId = if ($env:FEISHU_APP_ID) { $env:FEISHU_APP_ID } else { Read-Value 'Feishu App ID' (Read-ExistingEnv 'FEISHU_APP_ID') }
 $AppSecret = Read-SecretValue (Read-ExistingEnv 'FEISHU_APP_SECRET')
-$Backend = if ($env:AGENT_BRIDGE_BACKEND) { $env:AGENT_BRIDGE_BACKEND } else { Read-Value 'Agent backend (codex/opencode/claude/chuang)' ((Read-ExistingEnv 'AGENT_BRIDGE_BACKEND') -replace '^$','codex') }
+$Backend = if ($env:AGENT_BRIDGE_BACKEND) { $env:AGENT_BRIDGE_BACKEND } else { Read-Value 'Agent backend (codex/opencode/claude/chuang/openclaw/hermes/grok)' ((Read-ExistingEnv 'AGENT_BRIDGE_BACKEND') -replace '^$','codex') }
 $ProjectsRoot = if ($env:AGENT_BRIDGE_PROJECTS_ROOT) { $env:AGENT_BRIDGE_PROJECTS_ROOT } else { Read-Value 'Projects root' ((Read-ExistingEnv 'AGENT_BRIDGE_PROJECTS_ROOT') -replace '^$',(Join-Path $HOME 'projects')) }
 
 if (-not $AppId -or -not $AppSecret) { throw 'Feishu App ID and App Secret are required.' }
-if ($Backend -notin @('codex','opencode','claude','chuang')) { throw "Unsupported backend: $Backend" }
+if ($Backend -notin @('codex','opencode','claude','chuang','openclaw','hermes','grok')) { throw "Unsupported backend: $Backend" }
 $BackendCommand = switch ($Backend) {
   'codex' { 'codex.exe' }
   'opencode' { 'opencode.exe' }
   'claude' { 'claude.exe' }
+  'openclaw' { 'openclaw' }
+  'hermes' { 'hermes' }
+  'grok' { 'grok.exe' }
   default { $null }
 }
 $ResolvedBackendCommand = if ($env:AGENT_BRIDGE_CODEX_COMMAND) { $env:AGENT_BRIDGE_CODEX_COMMAND } else { Read-ExistingEnv 'AGENT_BRIDGE_CODEX_COMMAND' }

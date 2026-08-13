@@ -2,19 +2,9 @@ const { readConfig } = require("../infra/config/config");
 const { SessionStore } = require("../infra/storage/session-store");
 // 后端可切：AGENT_BRIDGE_BACKEND=codex|opencode|claude|chuang
 // 兼容旧变量：OPENCODE_BRIDGE_BACKEND / CHUANG_BRIDGE_BACKEND / CLAUDE_BRIDGE_BACKEND
-const AGENT_BRIDGE_BACKEND =
-  process.env.AGENT_BRIDGE_BACKEND
-  || process.env.OPENCODE_BRIDGE_BACKEND
-  || process.env.CHUANG_BRIDGE_BACKEND
-  || process.env.CLAUDE_BRIDGE_BACKEND
-  || "codex";
-const { CodexRpcClient } = AGENT_BRIDGE_BACKEND === "opencode"
-  ? require("../infra/opencode/rpc-client")
-  : AGENT_BRIDGE_BACKEND === "chuang"
-    ? require("../infra/chuang/rpc-client")
-    : AGENT_BRIDGE_BACKEND === "claude"
-      ? require("../infra/claude/rpc-client")
-      : require("../infra/codex/rpc-client");
+const { loadBackendClient, resolveConfiguredBackend } = require("../infra/backend-registry");
+const AGENT_BRIDGE_BACKEND = resolveConfiguredBackend(process.env);
+const CodexRpcClient = loadBackendClient(AGENT_BRIDGE_BACKEND);
 const {
   buildCardResponse,
   buildCardToast,
