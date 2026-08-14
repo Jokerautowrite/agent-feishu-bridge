@@ -501,25 +501,10 @@ async function deliverToFeishu(runtime, event) {
           state: "completed",
         });
         let providerReceipt = String(delivery?.providerReceipt || "").trim();
-        if (!providerReceipt) {
-          // A missing provider receipt is an ambiguous outcome: Feishu can have
-          // accepted the first card while the client lost the response. Retrying
-          // the terminal flush here can therefore create a second reply card.
-          // Do not blindly resend; record the uncertain delivery for observability
-          // and leave the existing streaming card untouched.
-          console.warn(
-            "[codex-im] final reply had no provider receipt; suppressing blind final card retry to avoid duplicate delivery"
-          );
-          await runtime.deliveryReceipts.recordOutboundFailure({
-            inboundMessageId,
-            failureClass: "receipt-unknown",
-          });
-          return;
-        }
-        await runtime.deliveryReceipts.recordOutboundCompletion({
+        if (providerReceipt) { await runtime.deliveryReceipts.recordOutboundCompletion({
           inboundMessageId,
           providerReceipt,
-        });
+        }); } else { console.warn("[codex-im] final: no provider receipt, not dropping"); await runtime.deliveryReceipts.recordOutboundFailure({ inboundMessageId, failureClass: "receipt-unknown" }); }
       } catch (error) {
         await runtime.deliveryReceipts.recordOutboundFailure({
           inboundMessageId,

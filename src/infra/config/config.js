@@ -103,6 +103,7 @@ function readConfig() {
       readCompatEnv("CODEX_IM_TEXT_ONLY_MODEL_PATTERNS"),
       ["deepseek", "big-pickle"]
     ),
+    imageVisionModel: readEnv("CODEX_IM_IMAGE_VISION_MODEL"),
     sessionsFile: readEnv("CODEX_IM_SESSIONS_FILE")
       || path.join(os.homedir(), ".codex-im", "sessions.json"),
   };

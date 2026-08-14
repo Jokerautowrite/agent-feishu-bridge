@@ -289,27 +289,27 @@ class CodexRpcClient {
   }) {
     const normalizedThreadId = normalizeNonEmptyString(threadId);
     const normalizedExpectedTurnId = normalizeNonEmptyString(expectedTurnId);
-    const input = buildTurnInputPayload(text, attachments);
+    const normalizedText = normalizeNonEmptyString(text);
     if (!normalizedThreadId) {
-      throw new Error("turn/steer requires a non-empty threadId");
+      throw new Error("turn/guidance requires a non-empty threadId");
     }
     if (!normalizedExpectedTurnId) {
-      throw new Error("turn/steer requires a non-empty expectedTurnId");
+      throw new Error("turn/guidance requires a non-empty turnId");
     }
-    if (!input.length) {
-      throw new Error("turn/steer requires non-empty input");
+    if (!normalizedText) {
+      throw new Error("turn/guidance requires non-empty text");
     }
 
     const params = {
       threadId: normalizedThreadId,
-      expectedTurnId: normalizedExpectedTurnId,
-      input,
+      turnId: normalizedExpectedTurnId,
+      text: normalizedText,
     };
     const normalizedClientUserMessageId = normalizeNonEmptyString(clientUserMessageId);
     if (normalizedClientUserMessageId) {
       params.clientUserMessageId = normalizedClientUserMessageId;
     }
-    return this.sendRequestProtected("turn/steer", params);
+    return this.sendRequestProtected("turn/guidance", params);
   }
 
   async startThread({ cwd }) {
@@ -441,7 +441,7 @@ class CodexRpcClient {
   }
 
   getRequestTimeoutMs(method) {
-    if (method === "turn/start" || method === "turn/steer") {
+    if (method === "turn/start" || method === "turn/guidance") {
       return this.turnStartTimeoutMs;
     }
     return this.requestTimeoutMs;

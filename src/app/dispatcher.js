@@ -114,7 +114,17 @@ async function onFeishuTextEvent(runtime, event) {
       && normalized.attachments.some((attachment) => attachment?.kind === "image"));
   if (hasAttachmentPayload) {
     const codexParams = runtime.getCodexParamsForWorkspace(bindingKey, workspaceRoot) || {};
-    const activeModel = String(codexParams.model || runtime.config.defaultCodexModel || "").trim();
+    let activeModel = String(codexParams.model || runtime.config.defaultCodexModel || "").trim();
+    // 图片消息 + 主模型纯文本（如 deepseek）→ 自动切换到视觉模型（CODEX_IM_IMAGE_VISION_MODEL），
+    // 图片走 native 模式直接传给模型；视觉模型覆盖值随 normalized 下发到 turn/start。
+    const visionModelOverride = String(runtime.config.imageVisionModel || "").trim();
+    if (isImageMessage && visionModelOverride && attachmentRuntime.isTextOnlyImageModel(
+      activeModel,
+      runtime.config.textOnlyImageModelPatterns
+    )) {
+      normalized.visionModelOverride = visionModelOverride;
+      activeModel = visionModelOverride;
+    }
     const isTextOnlyModel = attachmentRuntime.isTextOnlyImageModel(
       activeModel,
       runtime.config.textOnlyImageModelPatterns
