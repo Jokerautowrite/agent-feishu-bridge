@@ -8,6 +8,7 @@ const {
   isAbsoluteWorkspacePath,
   normalizeWorkspacePath,
   pathMatchesWorkspaceRoot,
+  resolveRealPathWithinWorkspace,
 } = require("../../shared/workspace-paths");
 
 const SEND_DIRECTIVE_RE = /\[\[codex-feishu-send:([^\]\n]+)\]\]/g;
@@ -75,7 +76,7 @@ function stripSendDirectives(text) {
 }
 
 async function sendWorkspaceAttachment(runtime, { chatId, workspaceRoot, requestedPath }) {
-  const resolved = resolveWorkspaceSendTarget(workspaceRoot, requestedPath);
+  const resolved = await resolveWorkspaceSendTarget(workspaceRoot, requestedPath);
   if (resolved.errorText) {
     await runtime.sendInfoCardMessage({
       chatId,
@@ -119,7 +120,7 @@ async function sendWorkspaceAttachment(runtime, { chatId, workspaceRoot, request
   });
 }
 
-function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
+async function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
   const normalizedInput = normalizeWorkspacePath(requestedPath);
   if (!normalizedInput) {
     return { errorText: "缺少相对路径。" };
@@ -127,13 +128,25 @@ function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
   if (isAbsoluteWorkspacePath(normalizedInput)) {
     return { errorText: "只支持当前项目下的相对路径，不支持绝对路径。" };
   }
-  const filePath = path.resolve(workspaceRoot, requestedPath);
-  if (!pathMatchesWorkspaceRoot(filePath, workspaceRoot)) {
+  const candidatePath = path.resolve(workspaceRoot, requestedPath);
+  if (!pathMatchesWorkspaceRoot(candidatePath, workspaceRoot)) {
     return { errorText: "路径不能跳出当前项目目录。" };
+  }
+  let filePath;
+  try {
+    filePath = await resolveRealPathWithinWorkspace(workspaceRoot, candidatePath);
+  } catch (error) {
+    if (error?.code === "ERR_WORKSPACE_PATH_ESCAPE") {
+      return { errorText: "路径最终指向当前项目目录之外，已拒绝发送。" };
+    }
+    if (error?.code === "ENOENT") {
+      return { errorText: "文件不存在。" };
+    }
+    throw error;
   }
   return {
     filePath,
-    displayPath: normalizeWorkspacePath(path.relative(workspaceRoot, filePath)) || requestedPath,
+    displayPath: normalizeWorkspacePath(path.relative(workspaceRoot, candidatePath)) || requestedPath,
   };
 }
 

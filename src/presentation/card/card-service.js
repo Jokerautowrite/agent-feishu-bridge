@@ -263,8 +263,13 @@ async function handleCardAction(runtime, data) {
   const chatType = typeof runtime.resolveChatType === "function"
     ? runtime.resolveChatType(chatId)
     : "";
-  const isAllowedOperator = !senderAllowlist.length
-    || isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType);
+  const isAllowedOperator = isAllowedCardOperator(
+    runtime,
+    operatorSenderIds,
+    senderAllowlist,
+    chatType,
+    chatId
+  );
   console.log(
     `[codex-im] card callback kind=${action?.kind || "-"} action=${action?.action || "-"} `
     + `thread=${action?.threadId || "-"} request=${action?.requestId || "-"} selected=${action?.selectedValue || "-"}`
@@ -344,8 +349,24 @@ async function handleCardAction(runtime, data) {
   return buildCardResponse({});
 }
 
-function isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType) {
+function isAllowedCardOperator(runtime, operatorSenderIds, senderAllowlist, chatType, chatId) {
   const [openId = "", userId = ""] = operatorSenderIds;
+  if (!Array.isArray(senderAllowlist) || senderAllowlist.length === 0) {
+    if (chatType === "p2p") {
+      return Boolean(openId || userId);
+    }
+    if (chatType !== "group") {
+      return false;
+    }
+    const adminIds = [
+      ...(Array.isArray(runtime?.config?.adminOpenIds) ? runtime.config.adminOpenIds : []),
+      ...(Array.isArray(runtime?.config?.superAdminOpenIds) ? runtime.config.superAdminOpenIds : []),
+    ];
+    return operatorSenderIds.some((id) => id && (
+      adminIds.includes(id)
+      || Boolean(runtime?.groupAdmins?.isAdmin?.(chatId, id))
+    ));
+  }
   // 私聊：open_id 随会话变化不可靠，只校验稳定的 user_id。
   if (chatType === "p2p") {
     return Boolean(userId && senderAllowlist.includes(userId));
@@ -354,7 +375,7 @@ function isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType) {
   if (chatType === "group") {
     return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
   }
-  // 未知会话类型：任一命中即可（宽松，避免误锁用户）。
+  // 显式白名单已配置时，未知会话类型仍可凭精确身份命中。
   return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
 }
 
@@ -1674,6 +1695,7 @@ module.exports = {
   disposeReplyRunState,
   flushAssistantReplyCardNow,
   handleCardAction,
+  isAllowedCardOperator,
   movePendingReactionToThread,
   openCardKitCircuit,
   patchInteractiveCard,

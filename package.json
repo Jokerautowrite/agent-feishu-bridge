@@ -1,7 +1,7 @@
 {
   "name": "agent-feishu-bridge",
   "version": "1.0.0",
-  "description": "自家二开的飞书桥：把本机 Agent（Codex / Claude / Opencode）接入飞书/Lark，流式卡片、推理展示、审批流、多后端可切换。",
+  "description": "把本机主流 AI Agent 接入飞书/Lark，提供流式卡片、项目绑定、审批、附件和多后端切换。",
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
@@ -20,6 +20,7 @@
     "openclaw",
     "hermes-agent",
     "grok",
+    "gemini-cli",
     "agent",
     "feishu",
     "lark",
@@ -63,13 +64,15 @@
     "test:openclaw-adapter": "node ./scripts/test-openclaw-adapter.js",
     "test:hermes-adapter": "node ./scripts/test-hermes-adapter.js",
     "test:grok-adapter": "node ./scripts/test-grok-adapter.js",
+    "test:gemini-adapter": "node ./scripts/test-gemini-adapter.js",
+    "test:card-authz": "node ./scripts/test-card-authz.js",
     "test:group-service": "node ./scripts/test-group-service.js",
     "test:group-identity": "node ./scripts/test-group-identity.js",
     "test:group-admin": "node ./scripts/test-group-admin.js",
     "test:group-authz": "node ./scripts/test-group-authz.js",
     "privacy:scan": "node ./scripts/privacy-scan.js",
     "pack:dry-run": "npm pack --dry-run",
-    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run test:command-docs && npm run test:backend-registry && npm run test:openclaw-adapter && npm run test:hermes-adapter && npm run test:grok-adapter && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
+    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run test:command-docs && npm run test:backend-registry && npm run test:openclaw-adapter && npm run test:hermes-adapter && npm run test:grok-adapter && npm run test:gemini-adapter && npm run test:group-service && npm run test:group-identity && npm run test:group-admin && npm run test:group-authz && npm run test:card-authz && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.73.0",

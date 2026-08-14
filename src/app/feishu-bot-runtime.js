@@ -1,6 +1,6 @@
 const { readConfig } = require("../infra/config/config");
 const { SessionStore } = require("../infra/storage/session-store");
-// 后端可切：AGENT_BRIDGE_BACKEND=codex|opencode|claude|chuang
+// 后端可切：统一由 src/infra/backend-registry.js 注册并通过 AGENT_BRIDGE_BACKEND 选择。
 // 兼容旧变量：OPENCODE_BRIDGE_BACKEND / CHUANG_BRIDGE_BACKEND / CLAUDE_BRIDGE_BACKEND
 const { loadBackendClient, resolveConfiguredBackend } = require("../infra/backend-registry");
 const AGENT_BRIDGE_BACKEND = resolveConfiguredBackend(process.env);

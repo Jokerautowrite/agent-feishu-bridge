@@ -6,6 +6,10 @@ const {
   prefetchChatMembers,
 } = require("../src/domain/group/member-name-cache");
 const { enrichGroupSenderIdentity } = require("../src/app/dispatcher");
+const {
+  buildMessageWithBridgeCapabilities,
+  resolveTurnAccessMode,
+} = require("../src/domain/thread/thread-service");
 
 // ── createMemberNameCache ──
 const cache = createMemberNameCache({ ttlMs: 60 * 1000 });
@@ -102,6 +106,28 @@ assert.strictEqual(emptyCache.getMemberName("oc_g", "ou_noperm"), "", "empty nam
   const p2pMsg = { chatType: "p2p", chatId: "ou_alice", senderId: "ou_alice", text: "hi" };
   const p2pEnriched = await enrichGroupSenderIdentity(identityRuntime, p2pMsg);
   assert.strictEqual(p2pEnriched.senderName, undefined, "p2p no injection");
+
+  const ordinaryGroupMessage = {
+    chatType: "group",
+    isExternalGroup: false,
+    isGroupAdmin: false,
+    senderId: "ou_member",
+    text: "看看项目",
+  };
+  assert.strictEqual(
+    resolveTurnAccessMode(ordinaryGroupMessage, "full-access"),
+    "group-readonly",
+    "ordinary members remain read-only even in mention-exempt groups"
+  );
+  assert.match(
+    buildMessageWithBridgeCapabilities(ordinaryGroupMessage),
+    /<group-hard-guard>/,
+    "ordinary members receive the hard guard"
+  );
+
+  const adminGroupMessage = { ...ordinaryGroupMessage, isGroupAdmin: true };
+  assert.strictEqual(resolveTurnAccessMode(adminGroupMessage, "full-access"), "full-access");
+  assert.doesNotMatch(buildMessageWithBridgeCapabilities(adminGroupMessage), /<group-hard-guard>/);
 
   console.log("group-identity tests OK");
 })().catch((error) => {
