@@ -137,6 +137,8 @@ function extractCardAction(data) {
       kind: value.kind,
       action: value.action || "",
       selectedValue,
+      threadId: value.threadId || "",
+      requestId: value.requestId || "",
     };
   }
   if (value.kind === "thread") {

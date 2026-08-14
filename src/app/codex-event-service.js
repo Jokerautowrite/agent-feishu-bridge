@@ -6,8 +6,12 @@ const MAX_TURN_FAILURE_CACHE_ENTRIES = 500;
 
 async function handleStopCommand(runtime, normalized) {
   const { bindingKey, workspaceRoot } = runtime.getBindingContext(normalized);
-  const threadId = workspaceRoot ? runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot) : null;
-  const turnId = threadId ? runtime.activeTurnIdByThreadId.get(threadId) || null : null;
+  const explicitThreadId = String(normalized.threadId || "").trim();
+  const threadId = explicitThreadId
+    || (workspaceRoot ? runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot) : null);
+  const explicitTurnId = String(normalized.turnId || normalized.requestId || "").trim();
+  const turnId = explicitTurnId
+    || (threadId ? runtime.activeTurnIdByThreadId.get(threadId) || null : null);
 
   if (!threadId) {
     await runtime.sendInfoCardMessage({
