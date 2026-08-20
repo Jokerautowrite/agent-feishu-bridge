@@ -97,6 +97,8 @@ class FeishuBotRuntime {
     this.pendingChatContextByBindingKey = new Map();
     this.chatTypeByChatId = new Map();
     this.activeTurnIdByThreadId = new Map();
+    // chuang 2.0: 当前进度步骤卡所在的 runKey（首个 delta 到达时清掉进度文本再写正文）。
+    this.progressRunKeyByThreadId = new Map();
     this.activeTurnStartedAtByThreadId = new Map();
     this.turnSteerQueueByThreadId = new Map();
     this.turnFailureTextByRunKey = new Map();

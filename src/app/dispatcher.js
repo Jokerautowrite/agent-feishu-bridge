@@ -139,6 +139,7 @@ async function onFeishuTextEvent(runtime, event) {
       return;
     }
   }
+  let retriedOnce = false;
   const { threadId } = await runtime.resolveWorkspaceThreadState({
     bindingKey,
     workspaceRoot,
@@ -182,8 +183,9 @@ async function onFeishuTextEvent(runtime, event) {
 
   await runtime.addPendingReaction(bindingKey, normalized.messageId);
 
+  let resolvedThreadId = null;
   try {
-    const resolvedThreadId = await runtime.ensureThreadAndSendMessage({
+    resolvedThreadId = await runtime.ensureThreadAndSendMessage({
       bindingKey,
       workspaceRoot,
       normalized,
@@ -191,14 +193,43 @@ async function onFeishuTextEvent(runtime, event) {
     });
     runtime.movePendingReactionToThread(bindingKey, resolvedThreadId);
   } catch (error) {
-    await runtime.clearPendingReactionForBinding(bindingKey);
-    await runtime.sendInfoCardMessage({
-      chatId: normalized.chatId,
-      replyToMessageId: normalized.messageId,
-      text: formatFailureText("处理失败", error),
-    });
-    throw error;
+    // ── app-server 重启瞬间，在途请求会被 'Chuang app-server socket closed'
+    //    拒绝；对 socket 生命周期错误自动重试一次（等重连循环恢复再发）。
+    if (isSocketLifecycleError(error) && !retriedOnce) {
+      retriedOnce = true;
+      console.warn(`[codex-im] socket 生命周期错误，2s 后重试一次: ${error.message}`);
+      await runtime.clearPendingReactionForBinding(bindingKey);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        resolvedThreadId = await runtime.ensureThreadAndSendMessage({
+          bindingKey,
+          workspaceRoot,
+          normalized,
+          threadId,
+        });
+        runtime.movePendingReactionToThread(bindingKey, resolvedThreadId);
+      } catch (retryError) {
+        await runtime.clearPendingReactionForBinding(bindingKey);
+        await runtime.sendInfoCardMessage({
+          chatId: normalized.chatId,
+          replyToMessageId: normalized.messageId,
+          text: formatFailureText("处理失败", retryError),
+        });
+        throw retryError;
+      }
+    } else {
+      await runtime.clearPendingReactionForBinding(bindingKey);
+      await runtime.sendInfoCardMessage({
+        chatId: normalized.chatId,
+        replyToMessageId: normalized.messageId,
+        text: formatFailureText("处理失败", error),
+      });
+      throw error;
+    }
   }
+
+  // ── 感知提速：turn 已送出（结果为异步回传），先给飞书一个"正在处理"占位，
+  //    不用干等整轮完成才看到响应。结果到达后照常发送回复。
 }
 
 /**
@@ -413,6 +444,35 @@ async function steerActiveTurn(runtime, { threadId, normalized }) {
   try {
     await submission;
   } catch (error) {
+    // socket 生命周期错误（app-server 重启瞬间）→ 等重连后重试一次。
+    if (isSocketLifecycleError(error)) {
+      console.warn(`[codex-im] turn/steer socket 错误，2s 后重试一次: ${error.message}`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      try {
+        await runtime.codex.steerTurn({
+          threadId,
+          expectedTurnId,
+          text: buildGroupSteerText(normalized),
+          attachments: normalized.attachments || [],
+          clientUserMessageId: normalized.messageId,
+        });
+        await runtime.sendInfoCardMessage({
+          chatId: normalized.chatId,
+          replyToMessageId: normalized.messageId,
+          text: "已收到，正在继续当前任务。",
+        });
+        return;
+      } catch (retryError) {
+        console.warn(`[codex-im] turn/steer retry failed thread=${threadId}: ${retryError.message}`);
+        await runtime.sendInfoCardMessage({
+          chatId: normalized.chatId,
+          replyToMessageId: normalized.messageId,
+          text: buildSteerFailureText(retryError),
+          kind: "error",
+        });
+        return;
+      }
+    }
     console.warn(`[codex-im] turn/steer failed thread=${threadId}: ${error.message}`);
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
@@ -548,6 +608,23 @@ async function onFeishuCardAction(runtime, data) {
 
 function onCodexMessage(runtime, message) {
   eventsRuntime.handleCodexMessage(runtime, message);
+}
+
+/**
+ * socket 生命周期错误判定：app-server 重启/断连导致在途请求被拒。
+ */
+function isSocketLifecycleError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("socket closed") ||
+    message.includes("socket") ||
+    message.includes("reconnect") ||
+    message.includes("not connected") ||
+    message.includes("connection") ||
+    message.includes("broken pipe") ||
+    message.includes("econnrefused") ||
+    message.includes("econnreset")
+  );
 }
 
 module.exports = {

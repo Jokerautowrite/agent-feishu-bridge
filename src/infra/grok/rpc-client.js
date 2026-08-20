@@ -19,6 +19,7 @@ class GrokRpcClient {
     this.commandArgs = Array.isArray(options.commandArgs) ? [...options.commandArgs] : [];
     this.defaultCwd = normalizeString(options.cwd || options.workspaceRoot) || process.cwd();
     this.model = normalizeString(options.model || this.env.GROK_MODEL) || DEFAULT_MODEL;
+    this.models = parseConfiguredModels(this.env, this.model);
     this.firstEventTimeoutMs = positiveNumber(options.firstEventTimeoutMs, DEFAULT_FIRST_EVENT_TIMEOUT_MS);
     this.turnTimeoutMs = positiveNumber(options.turnTimeoutMs, DEFAULT_TURN_TIMEOUT_MS);
     this.probeTimeoutMs = positiveNumber(options.probeTimeoutMs, 5000);
@@ -152,14 +153,14 @@ class GrokRpcClient {
   }
 
   async listModels() {
-    const configured = this.model;
-    const data = [{
-      id: configured,
-      model: configured,
-      displayName: configured,
-      isDefault: true,
+    const models = this.models.length ? this.models : [this.model];
+    const data = models.map((id) => ({
+      id,
+      model: id,
+      displayName: formatGrokDisplayName(id),
+      isDefault: id === this.model,
       supportedReasoningEfforts: [...SUPPORTED_EFFORTS],
-    }];
+    }));
     return { data, models: data, result: { data } };
   }
 
@@ -439,9 +440,33 @@ function firstNonEmptyLine(value) {
   return String(value || "").split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
 }
 
+function parseConfiguredModels(env, defaultModel) {
+  const fallback = normalizeString(defaultModel) || DEFAULT_MODEL;
+  const raw = normalizeString(env?.GROK_MODELS || env?.GROK_MODEL_LIST);
+  const names = [];
+  const seen = new Set();
+  const push = (value) => {
+    const id = normalizeString(value);
+    if (!id) return;
+    const key = id.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(id);
+  };
+  push(fallback);
+  for (const part of raw.split(/[,;\s]+/)) push(part);
+  return names;
+}
+
+function formatGrokDisplayName(id) {
+  const model = normalizeString(id);
+  const matched = /^grok-(\d+(?:\.\d+)*)$/i.exec(model);
+  return matched ? `Grok ${matched[1]}` : model;
+}
+
 function normalizeString(value) { return String(value || "").trim(); }
 function positiveNumber(value, fallback) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback; }
 function numberOrZero(value) { const parsed = Number(value); return Number.isFinite(parsed) && parsed > 0 ? parsed : 0; }
 function formatError(error) { return error instanceof Error ? error.message : String(error || "unknown error"); }
 
-module.exports = { GrokRpcClient, CodexRpcClient: GrokRpcClient, buildGrokArgs };
+module.exports = { GrokRpcClient, CodexRpcClient: GrokRpcClient, buildGrokArgs, parseConfiguredModels };

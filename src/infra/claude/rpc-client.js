@@ -27,6 +27,15 @@ const STATIC_MODEL_CATALOG = [
   { id: "claude-opus-4-8", displayName: "Opus 4.8" },
   { id: "claude-sonnet-5", displayName: "Sonnet 5" },
   { id: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" },
+  // opencodex sub2 模型（链路: Claude CLI → opencodex → 5yuantoken）
+  { id: "sub2/deepseek-v4-flash", displayName: "DeepSeek V4 Flash (sub2)" },
+  { id: "sub2/deepseek-v4-pro", displayName: "DeepSeek V4 Pro (sub2)" },
+  { id: "sub2/gpt-5.4", displayName: "GPT-5.4 (sub2)" },
+  { id: "sub2/gpt-5.5", displayName: "GPT-5.5 (sub2)" },
+  { id: "sub2/gpt-5.6", displayName: "GPT-5.6 (sub2)" },
+  { id: "sub2/gpt-5.6-sol", displayName: "GPT-5.6 Sol (sub2)" },
+  { id: "sub2/gpt-5.6-terra", displayName: "GPT-5.6 Terra (sub2)" },
+  { id: "sub2/Qwen3.8", displayName: "Qwen3.8 (sub2)" },
 ];
 // 首个事件的等待上限：超过就认定后端没起来，主动失败而不是让人干等
 const FIRST_EVENT_TIMEOUT_MS = Number(process.env.CLAUDE_BRIDGE_FIRST_EVENT_MS || 45000);
@@ -276,15 +285,17 @@ class ClaudeRpcClient {
       return false;
     }
 
-    // 流式正文增量 —— 桥靠这个做打字机效果
+    // 流式正文增量 —— 桥靠这个做打字机效果。
+    // 契约是 item/agentMessage/delta（opencode/grok/chuang 后端都发这个），
+    // 桥的 message-utils 只认 delta 和 item/completed(agentMessage) 当正文；
+    // 之前发 item/started(streaming) 会被消息层整个丢弃，飞书端只有最后
+    // item/completed 那一下才出字，长回答表现为长时间转圈后整段冒出。
     if (t === "stream_event") {
       const d = ev.event?.delta;
       if (d?.type === "text_delta" && d.text) {
-        this.emit("item/started", {
-          threadId, turnId,
-          item: { id: `msg-${turnId}`, type: "agentMessage", text: d.text, streaming: true },
+        this.emit("item/agentMessage/delta", {
+          threadId, turnId, delta: d.text,
         });
-        openItems.set(`msg-${turnId}`, "agentMessage");
         return true;
       }
       return false;

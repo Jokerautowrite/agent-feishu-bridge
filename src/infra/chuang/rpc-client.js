@@ -33,7 +33,7 @@ class CodexRpcClient {
     appServerProfile = "",
     logLevel = "normal",
     requestTimeoutMs = 45000,
-    turnStartTimeoutMs = 60000,
+    turnStartTimeoutMs = 150000,
   }) {
     this.endpoint = endpoint;
     this.env = env;

@@ -55,6 +55,17 @@ async function main() {
 
   const listed = await client.listThreads();
   assert(listed.data.some((item) => item.id === threadId));
+
+  const catalogClient = new GrokRpcClient({
+    command: process.execPath,
+    commandArgs: [__filename, "--fake-grok"],
+    env: { GROK_MODEL: "grok-4.5", GROK_MODELS: "grok-4.5,grok-4.6" },
+  });
+  const catalog = await catalogClient.listModels();
+  assert.deepEqual(catalog.models.map((item) => item.model), ["grok-4.5", "grok-4.6"]);
+  assert.equal(catalog.models.find((item) => item.model === "grok-4.5")?.isDefault, true);
+  assert.equal(catalog.models.find((item) => item.model === "grok-4.5")?.displayName, "Grok 4.5");
+
   console.log("Grok adapter tests passed");
 }
 

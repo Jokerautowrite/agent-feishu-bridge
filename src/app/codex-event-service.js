@@ -57,6 +57,31 @@ function handleCodexMessage(runtime, message) {
   trackLatestTokenUsage(runtime, message);
   const toolUsageChanged = trackLatestToolUsage(runtime, message);
   const reasoningTraceChanged = trackLatestReasoningSummary(runtime, message);
+  const progressStepText = extractProgressStepText(message);
+  if (progressStepText) {
+    refreshStreamingReplyCardForProgress(runtime, message, { stepText: progressStepText });
+  } else if (message?.method === "turn/started") {
+    // 预建流式卡：发完消息 0.1s 就有"正在处理"，避免黑盒等待。
+    const startedThreadId = String(message?.params?.threadId || "").trim();
+    const chatId = runtime.pendingChatContextByThreadId.get(startedThreadId)?.chatId || "";
+    if (startedThreadId && chatId) {
+      const startedTurnId = String(
+        message?.params?.turn?.id
+          || runtime.activeTurnIdByThreadId.get(startedThreadId)
+          || ""
+      ).trim();
+      runtime.upsertAssistantReplyCard({
+        threadId: startedThreadId,
+        turnId: startedTurnId,
+        chatId,
+        text: "正在处理…",
+        mode: "progress",
+        state: "streaming",
+      }).catch((error) => {
+        console.error(`[codex-im] failed to create streaming card: ${error.message}`);
+      });
+    }
+  }
   codexMessageUtils.trackRunKeyState(runtime.currentRunKeyByThreadId, runtime.activeTurnIdByThreadId, message);
   codexMessageUtils.trackRunningTurn(runtime.activeTurnIdByThreadId, message);
   trackRunningTurnStartedAt(runtime, message);
@@ -347,9 +372,18 @@ function normalizeReasoningSummaryText(value) {
   return `${clean.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function refreshStreamingReplyCardForProgress(runtime, message) {
+function refreshStreamingReplyCardForProgress(runtime, message, options = {}) {
   const params = message?.params || {};
   const threadId = String(params?.threadId || "").trim();
+  if (options.stepText) {
+    const progressKey = codexMessageUtils.buildRunKey(
+      threadId,
+      String(params?.turnId || params?.turn?.id || "").trim() || runtime.activeTurnIdByThreadId.get(threadId) || ""
+    );
+    if (progressKey) {
+      runtime.progressRunKeyByThreadId.set(threadId, progressKey);
+    }
+  }
   const turnId = String(
     params?.turnId
       || params?.turn?.id
@@ -369,10 +403,45 @@ function refreshStreamingReplyCardForProgress(runtime, message) {
     threadId,
     turnId,
     chatId,
+    text: options.stepText || undefined,
+    mode: options.stepText ? "progress" : "delta",
     state: "streaming",
   }).catch((error) => {
     console.error(`[codex-im] failed to refresh streaming progress card: ${error.message}`);
   });
+}
+
+/**
+ * 从 chuang turn/progress 事件提取"正在做什么"的人类可读文本。
+ * 服务端 TerminalEvent：step_started / model_started / tool_started 等。
+ * 这样飞书端在整轮完成前就能看到工作步骤（不再黑盒等整段回复）。
+ */
+function extractProgressStepText(message) {
+  const method = String(message?.method || "");
+  if (method !== "turn/progress") {
+    return null;
+  }
+  const event = message?.params?.event?.event || message?.params?.event || {};
+  const kind = String(event.kind || "");
+  switch (kind) {
+    case "step_started": {
+      const title = String(event.title || "").trim();
+      return title ? `正在${title}…` : "正在准备…";
+    }
+    case "model_started":
+      return "思考中…";
+    case "tool_started": {
+      const detail = String(event.activity_detail || "").trim();
+      const title = String(event.activity_title || "").trim();
+      if (title) {
+        return detail ? `正在${title}：${detail}` : `正在${title}…`;
+      }
+      const tool = String(event.tool || "").trim();
+      return tool ? `正在执行 ${tool}…` : "正在执行…";
+    }
+    default:
+      return null;
+  }
 }
 
 function isToolLikeItemType(itemType) {
@@ -467,12 +536,22 @@ async function deliverToFeishu(runtime, event) {
     if (!attachmentResult.text && attachmentResult.sent > 0) {
       return;
     }
+    const progressRunKey = runtime.progressRunKeyByThreadId.get(event.payload.threadId) || "";
+    const replyRunKey = codexMessageUtils.buildRunKey(
+      event.payload.threadId,
+      event.payload.turnId
+    );
+    const deltaStartsFreshReply = progressRunKey && (!replyRunKey || progressRunKey === replyRunKey);
+    if (deltaStartsFreshReply) {
+      runtime.progressRunKeyByThreadId.delete(event.payload.threadId);
+    }
     await runtime.upsertAssistantReplyCard({
       threadId: event.payload.threadId,
       turnId: event.payload.turnId,
       chatId: event.payload.chatId,
       text: attachmentResult.text,
       mode: event.payload.mode || "delta",
+      resetText: deltaStartsFreshReply,
       state: "streaming",
       deferFlush: !runtime.config.feishuStreamingOutput,
     });

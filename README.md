@@ -208,7 +208,8 @@ HERMES_MODEL=
 
 # Grok
 GROK_COMMAND=grok
-GROK_MODEL=grok-build
+GROK_MODEL=grok-4.5
+GROK_MODELS=grok-4.5,grok-4.6
 ```
 
 配置加载顺序：

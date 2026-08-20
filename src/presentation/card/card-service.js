@@ -425,7 +425,7 @@ async function sendCardActionFeedback(runtime, data, text, kind = "info") {
 
 async function upsertAssistantReplyCard(
   runtime,
-  { threadId, turnId, chatId, text, state, mode = "delta", deferFlush = false }
+  { threadId, turnId, chatId, text, state, mode = "delta", deferFlush = false, resetText = false }
 ) {
   if (!threadId || !chatId) {
     return;
@@ -487,6 +487,10 @@ async function upsertAssistantReplyCard(
     };
   }
 
+  if (resetText) {
+    existing.text = "";
+    existing.answerText = "";
+  }
   if (typeof text === "string" && text.length > 0) {
     applyAssistantReplyText(existing, text, mode);
   }
@@ -531,6 +535,12 @@ function applyAssistantReplyText(entry, text, mode = "delta") {
   }
   if (mode === "completed_snapshot") {
     applyCompletedAssistantSnapshot(entry, incoming);
+    return;
+  }
+  if (mode === "progress") {
+    // 工作步骤进度：替换语义（每次显示当前步骤，不累积成流水账）。
+    entry.text = incoming;
+    entry.answerText = incoming;
     return;
   }
   entry.text = mergeReplyText(entry.text, incoming);
