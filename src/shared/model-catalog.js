@@ -36,14 +36,18 @@ function findModelByQuery(models, query) {
     return null;
   }
   const bareQuery = normalizedQuery.split("/").pop();
+  const exact = models.find((item) => {
+    const modelName = normalizeText(item?.model).toLowerCase();
+    const idName = normalizeText(item?.id).toLowerCase();
+    return modelName === normalizedQuery || idName === normalizedQuery;
+  });
+  if (exact) return exact;
   return models.find((item) => {
     const modelName = normalizeText(item?.model).toLowerCase();
     const idName = normalizeText(item?.id).toLowerCase();
     const bareModel = modelName.split("/").pop();
     const bareId = idName.split("/").pop();
-    return modelName === normalizedQuery
-      || idName === normalizedQuery
-      || (bareQuery && (bareModel === bareQuery || bareId === bareQuery));
+    return bareModel === bareQuery || bareId === bareQuery;
   }) || null;
 }
 

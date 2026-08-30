@@ -538,9 +538,14 @@ function loadOcxModelMapping() {
     const sectionRe = /^\[model\.([^\]]+)\]\s*\n((?:.*\n)*?)(?=^\[|$(?![\s\S]))/gm;
     let m;
     while ((m = sectionRe.exec(text)) !== null) {
+      const section = m[1] || "";
+      // Only remap opencodex-injected ocx-* aliases. Custom sections like
+      // relay-grok-46 must keep their section name so Feishu defaults match
+      // `grok models` output and CLI --model selection.
+      if (!section.startsWith("ocx-")) continue;
       const body = m[2] || "";
       const mm = /^model\s*=\s*"([^"]+)"/m.exec(body);
-      if (mm) mapping[m[1]] = mm[1];
+      if (mm) mapping[section] = mm[1];
     }
   } catch (error) {
     // 配置文件不存在/不可读时返回空映射，模型名原样透传。
