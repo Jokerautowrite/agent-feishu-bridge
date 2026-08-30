@@ -60,27 +60,6 @@ function handleCodexMessage(runtime, message) {
   const progressStepText = extractProgressStepText(message);
   if (progressStepText) {
     refreshStreamingReplyCardForProgress(runtime, message, { stepText: progressStepText });
-  } else if (message?.method === "turn/started") {
-    // 预建流式卡：发完消息 0.1s 就有"正在处理"，避免黑盒等待。
-    const startedThreadId = String(message?.params?.threadId || "").trim();
-    const chatId = runtime.pendingChatContextByThreadId.get(startedThreadId)?.chatId || "";
-    if (startedThreadId && chatId) {
-      const startedTurnId = String(
-        message?.params?.turn?.id
-          || runtime.activeTurnIdByThreadId.get(startedThreadId)
-          || ""
-      ).trim();
-      runtime.upsertAssistantReplyCard({
-        threadId: startedThreadId,
-        turnId: startedTurnId,
-        chatId,
-        text: "正在处理…",
-        mode: "progress",
-        state: "streaming",
-      }).catch((error) => {
-        console.error(`[codex-im] failed to create streaming card: ${error.message}`);
-      });
-    }
   }
   codexMessageUtils.trackRunKeyState(runtime.currentRunKeyByThreadId, runtime.activeTurnIdByThreadId, message);
   codexMessageUtils.trackRunningTurn(runtime.activeTurnIdByThreadId, message);

@@ -64,6 +64,24 @@ function extractUsageTokenCounts(info) {
   return { inputTokens: input, outputTokens: output, reasoningTokens: reasoning, totalTokens: total };
 }
 
+function findModelContextWindow(config, providerId, modelId) {
+  const providers = config?.provider || {};
+  const p = providers[providerId] || providers[String(providerId || "").toLowerCase()];
+  const model = p?.models?.[modelId];
+  const limit = model?.limit || {};
+  const ctx = Number(limit.context || 0);
+  if (ctx > 0) return ctx;
+  const modelName = model?.name || "";
+  for (const key of [modelId, `${providerId}/${modelId}`, modelName]) {
+    if (!key) continue;
+    for (const [pid, pv] of Object.entries(providers)) {
+      const m = pv?.models?.[key];
+      if (m?.limit?.context) return Number(m.limit.context);
+    }
+  }
+  return 0;
+}
+
 class OpencodeRpcClient {
   constructor(opts = {}) {
     this.serverUrl = opts.serverUrl || DEFAULT_SERVER_URL;
@@ -81,6 +99,8 @@ class OpencodeRpcClient {
     this.serveRoot = "";           // opencode serve 启动目录（connect 时探测）
     this.sseReadyResolve = null;
     this.sseReady = new Promise((resolve) => { this.sseReadyResolve = resolve; });
+    this.configCache = null;          // opencode /config 缓存
+    this.configFetched = false;       // 是否已拉过 /config
   }
 
   // ── 生命周期 ────────────────────────────────────────
@@ -306,6 +326,8 @@ class OpencodeRpcClient {
   async listModels() {
     const resp = await fetch(`${this.serverUrl}/config`, { signal: AbortSignal.timeout(5000) });
     const config = resp.ok ? await resp.json() : {};
+    this.configCache = config;
+    this.configFetched = true;
     const models = [];
     const seen = new Set();
     const configured = config?.model || "";
@@ -337,6 +359,47 @@ class OpencodeRpcClient {
     }
     const data = models;
     return { data, result: { data }, models: data };
+  }
+
+  // ── 模型上下文窗口：从 /config 的 limit.context 解析 ──
+  async resolveSessionContextWindow(sessionId) {
+    try {
+      if (!this.configFetched) {
+        const resp = await fetch(`${this.serverUrl}/config`, { signal: AbortSignal.timeout(5000) });
+        if (resp.ok) {
+          this.configCache = await resp.json();
+          this.configFetched = true;
+        }
+      }
+      const providerId = "";
+      let modelId = "";
+      try {
+        const sresp = await fetch(`${this.serverUrl}/session/${encodeURIComponent(sessionId)}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (sresp.ok) {
+          const s = await sresp.json();
+          const model = s?.model || {};
+          modelId = String(model?.id || "");
+          const pid = String(model?.providerID || "");
+          const window = findModelContextWindow(this.configCache, pid, modelId);
+          if (window > 0) return window;
+          if (pid) {
+            const providerVal = pid.startsWith("sub2/") ? pid : pid;
+            const w2 = findModelContextWindow(this.configCache, providerVal, modelId);
+            if (w2 > 0) return w2;
+          }
+        }
+      } catch (e) {
+        this.log(`resolveSessionContextWindow session fetch failed: ${e.message}`);
+      }
+      // 兜底：用默认模型（config.model）的窗口
+      const fallback = findModelContextWindow(this.configCache, "", String(this.configCache?.model || "").split("/")[1] || "");
+      return fallback > 0 ? fallback : 0;
+    } catch (e) {
+      this.log(`resolveSessionContextWindow failed: ${e.message}`);
+      return 0;
+    }
   }
 
   // ── 核心：一轮对话 ──────────────────────────────────
@@ -453,7 +516,19 @@ class OpencodeRpcClient {
         const usage = extractUsageTokenCounts(data?.info);
         if (usage) {
           run.tokenUsage = usage;
-          this.emit("thread/tokenUsage/updated", { threadId: tid, tokenUsage: usage });
+          // 补上模型上下文窗口：codex 桥的 usage 自带 modelContextWindow，
+          // opencode 的 info.tokens 没有，需从 /config 的 limit.context 解析。
+          // 否则卡片底部"📝 上下文 xx/xx (x%)"进度条行缺失。
+          let emitUsage = usage;
+          try {
+            const window = await this.resolveSessionContextWindow(sessionId);
+            if (window > 0) {
+              emitUsage = { ...usage, modelContextWindow: window };
+            }
+          } catch (e) {
+            this.log(`resolve context window failed: ${e.message}`);
+          }
+          this.emit("thread/tokenUsage/updated", { threadId: tid, tokenUsage: emitUsage });
         }
         // 同步响应里若已有最终文本且 SSE 没给过正文，补一次
         if (!run.sawText) {
@@ -653,6 +728,13 @@ class OpencodeRpcClient {
         accessMode: params?.accessMode,
         workspaceRoot: params?.workspaceRoot,
       });
+      case "turn/steer": return this.steerTurn({
+        threadId: params?.threadId,
+        expectedTurnId: params?.expectedTurnId,
+        text: extractText(params?.input),
+        attachments: params?.attachments || [],
+        clientUserMessageId: params?.clientUserMessageId || "",
+      });
       case "turn/interrupt": return this.interrupt(params?.threadId);
       default:
         this.log(`unhandled method ${method}`);
@@ -663,6 +745,50 @@ class OpencodeRpcClient {
   async sendNotification() { return {}; }
   async sendResponse() { return {}; }
   sendRaw() { return {}; }
+
+  /**
+   * 运行中引导：向正在跑的 opencode 会话注入一条新消息。
+   * opencode 的 POST /session/{id}/message 在会话忙碌时会把它当作对当前
+   * turn 的追加输入（实测可穿透），后续 SSE delta 仍走当前 turn 的事件流。
+   * 与 sendUserMessage 的区别：不做 busy 拒绝、不新建 turnId，直接注入。
+   */
+  async steerTurn({ threadId, expectedTurnId, text, attachments = [], clientUserMessageId = "" } = {}) {
+    const normalized = String(threadId || "").trim();
+    const expected = String(expectedTurnId || "").trim();
+    if (!normalized) throw new Error("turn/steer requires a non-empty threadId");
+    if (!expected) throw new Error("turn/steer requires a non-empty expectedTurnId");
+
+    const run = this.running.get(normalized);
+    if (!run) {
+      throw new Error(`turn/steer failed: session ${normalized} is not running`);
+    }
+    if (run.turnId !== expected) {
+      throw new Error("turn/steer failed: active turn changed before submission");
+    }
+    if (!String(text || "").trim()) {
+      throw new Error("turn/steer requires non-empty input");
+    }
+
+    let prompt = String(text || "");
+    if (attachments && attachments.length) {
+      const files = attachments.map((a) => a?.path || a?.filePath).filter(Boolean);
+      if (files.length) prompt += "\n\n[附件]\n" + files.join("\n");
+    }
+
+    await fetch(`${this.serverUrl}/session/${normalized}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parts: [{ type: "text", text: prompt }] }),
+    }).catch((err) => {
+      if (!run.settled && run.sawText) {
+        this.log(`steer POST failed but SSE flowing: ${err.message}`);
+        return null;
+      }
+      throw new Error(`向 opencode 注入引导消息失败：${err.message}`);
+    });
+
+    return { threadId: normalized, turnId: run.turnId };
+  }
 
   async interrupt(threadId) {
     const normalized = String(threadId || "").trim();

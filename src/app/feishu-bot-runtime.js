@@ -56,7 +56,7 @@ const runtimeExtensions = require("./runtime-extensions");
 const eventsRuntime = require("./codex-event-service");
 const approvalPolicyRuntime = require("../domain/approval/approval-policy");
 const appDispatcher = require("./dispatcher");
-const { extractModelCatalogFromListResponse } = require("../shared/model-catalog");
+const { extractModelCatalogFromListResponse, parseOpenCodeXModelCatalog } = require("../shared/model-catalog");
 const { extractProfileValue } = require("../shared/command-parsing");
 const { DeliveryReceiptHook } = require("./delivery-receipt-hook");
 const fs = require("fs");
@@ -251,21 +251,55 @@ class FeishuBotRuntime {
   async refreshAvailableModelCatalogAtStartup() {
     const cachedCatalog = this.sessionStore.getAvailableModelCatalog();
     let models = [];
+    // 优先从后端 CLI 拉模型目录（CLI 已由 opencodex 注入全部模型，
+    // 链路: bridge -> CLI -> opencodex -> sub2/xai）。失败时回退到 opencodex
+    // /v1/models 直拉，再失败用缓存目录。
+    let cliError = null;
     try {
       const response = await Promise.race([
         this.codex.listModels(),
         new Promise((_, reject) => setTimeout(
-          () => reject(new Error("model/list startup refresh timed out after 10000ms")),
-          10000
+          () => reject(new Error("model/list startup refresh timed out after 15000ms")),
+          15000
         )),
       ]);
       models = extractModelCatalogFromListResponse(response);
-    } catch (error) {
-      models = Array.isArray(cachedCatalog?.models) ? cachedCatalog.models : [];
-      if (!models.length) {
-        throw error;
+      if (models.length) {
+        console.log(`[codex-im] model catalog refreshed from backend CLI: ${models.length} entries`);
       }
-      console.warn(`[codex-im] model catalog refresh unavailable; using cached catalog: ${error.message}`);
+    } catch (error) {
+      cliError = error;
+      models = [];
+    }
+    if (!models.length) {
+      const openCodexUrl = (
+        this.config.opencodexModelsUrl
+        || process.env.OPENCODEX_MODELS_URL
+        || "http://127.0.0.1:10100/v1/models"
+      );
+      let openCodexError = null;
+      try {
+        const ocxResp = await Promise.race([
+          fetch(openCodexUrl, { signal: AbortSignal.timeout(45000) }).then((resp) => resp.json()),
+          new Promise((_, reject) => setTimeout(
+            () => reject(new Error("opencodex model list timed out after 45000ms")),
+            45000
+          )),
+        ]);
+        models = parseOpenCodeXModelCatalog(ocxResp, this.config.defaultCodexModel);
+        if (models.length) {
+          console.log(`[codex-im] model catalog refreshed from opencodex fallback: ${models.length} entries`);
+        }
+        if (cliError) {
+          console.warn(`[codex-im] backend CLI catalog unavailable; using opencodex fallback: ${cliError.message}`);
+        }
+      } catch (error) {
+        models = Array.isArray(cachedCatalog?.models) ? cachedCatalog.models : [];
+        if (!models.length) {
+          throw error;
+        }
+        console.warn(`[codex-im] model catalog refresh unavailable; using cached catalog: ${error.message}`);
+      }
     }
     if (!models.length) {
       throw new Error("model/list returned no models at startup");

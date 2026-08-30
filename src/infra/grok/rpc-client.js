@@ -5,6 +5,9 @@
 // surface required by this bridge's existing backend contract.
 const { spawn } = require("child_process");
 const { randomUUID } = require("crypto");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const DEFAULT_COMMAND = "grok";
 const DEFAULT_MODEL = "grok-build";
@@ -153,6 +156,14 @@ class GrokRpcClient {
   }
 
   async listModels() {
+    // 优先从 grok CLI 拉取模型目录（grok CLI 已由 opencodex 注入全部 ocx 模型，
+    // 链路: grok CLI -> opencodex -> sub2/xai）。失败时回退到 env 配置的模型。
+    try {
+      const cliModels = await this.listModelsFromCli();
+      if (cliModels && cliModels.data && cliModels.data.length) return cliModels;
+    } catch (error) {
+      console.warn(`[grok-bridge] grok models fetch failed, falling back to env: ${formatError(error)}`);
+    }
     const models = this.models.length ? this.models : [this.model];
     const data = models.map((id) => ({
       id,
@@ -162,6 +173,26 @@ class GrokRpcClient {
       supportedReasoningEfforts: [...SUPPORTED_EFFORTS],
     }));
     return { data, models: data, result: { data } };
+  }
+
+  /**
+   * 执行 `grok models` 并解析模型目录。grok CLI 的模型列表包含 opencodex 注入的
+   * `ocx-*` 内部名；通过 ~/.grok/config.toml 的 [model.<section>] model="实际名"
+   * 映射还原为目录名（如 ocx-sub2-grok-4-5 -> sub2/grok-4.5），直连模型（grok-4.5）
+   * 保留原名。这样飞书选择器同时显示 sub2 中转与直连模型。
+   */
+  async listModelsFromCli() {
+    const result = await runCommand({
+      spawnImpl: this.spawnImpl,
+      command: this.command,
+      args: [...this.commandArgs, "models"],
+      env: this.env,
+      timeoutMs: this.probeTimeoutMs * 4,
+    });
+    if (result.error || result.code !== 0) {
+      throw new Error(result.error ? formatError(result.error) : `grok models exited ${result.code}`);
+    }
+    return parseGrokModelsOutput(result.stdout, this.model);
   }
 
   async sendUserMessage({ threadId, text, attachments = [], model = null, effort = null, workspaceRoot = "" } = {}) {
@@ -456,6 +487,65 @@ function parseConfiguredModels(env, defaultModel) {
   push(fallback);
   for (const part of raw.split(/[,;\s]+/)) push(part);
   return names;
+}
+
+function parseGrokModelsOutput(stdout, fallbackDefault) {
+  const mapping = loadOcxModelMapping();
+  const names = [];
+  let defaultModel = normalizeString(fallbackDefault);
+  let inList = false;
+  for (const line of String(stdout || "").split(/\r?\n/)) {
+    const t = line.trim();
+    if (t.startsWith("Available models:")) { inList = true; continue; }
+    if (!inList) continue;
+    if (t.startsWith("- ") || t.startsWith("* ")) {
+      const m = /^[\-\*]\s+(\S+)(?:\s+\(default\))?$/.exec(t);
+      if (!m) continue;
+      const internalName = m[1];
+      if (t.startsWith("* ")) defaultModel = internalName;
+      names.push(internalName);
+    }
+  }
+  const seen = new Set();
+  const out = [];
+  for (const internalName of names) {
+    const id = mapping[internalName] || internalName;
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(id);
+  }
+  const defaultKey = (mapping[defaultModel] || defaultModel || "").toLowerCase();
+  const entries = out.map((id) => ({
+    id,
+    model: id,
+    displayName: formatGrokDisplayName(id),
+    isDefault: id.toLowerCase() === defaultKey,
+    supportedReasoningEfforts: [...SUPPORTED_EFFORTS],
+  }));
+  return { data: entries, models: entries, result: { data: entries } };
+}
+
+function loadOcxModelMapping() {
+  // opencodex 注入 grok CLI 时，会在 ~/.grok/config.toml 写 [model.ocx-*] 段：
+  //   [model.ocx-sub2-grok-4-5]
+  //   model = "sub2/grok-4.5"
+  // 解析该映射，把 grok models 输出的内部名还原为目录名。
+  const mapping = {};
+  try {
+    const configPath = path.join(os.homedir(), ".grok", "config.toml");
+    const text = fs.readFileSync(configPath, "utf8");
+    const sectionRe = /^\[model\.([^\]]+)\]\s*\n((?:.*\n)*?)(?=^\[|$(?![\s\S]))/gm;
+    let m;
+    while ((m = sectionRe.exec(text)) !== null) {
+      const body = m[2] || "";
+      const mm = /^model\s*=\s*"([^"]+)"/m.exec(body);
+      if (mm) mapping[m[1]] = mm[1];
+    }
+  } catch (error) {
+    // 配置文件不存在/不可读时返回空映射，模型名原样透传。
+  }
+  return mapping;
 }
 
 function formatGrokDisplayName(id) {

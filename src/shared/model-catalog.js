@@ -35,10 +35,16 @@ function findModelByQuery(models, query) {
   if (!normalizedQuery || !Array.isArray(models)) {
     return null;
   }
-  return models.find((item) => (
-    normalizeText(item?.model).toLowerCase() === normalizedQuery
-    || normalizeText(item?.id).toLowerCase() === normalizedQuery
-  )) || null;
+  const bareQuery = normalizedQuery.split("/").pop();
+  return models.find((item) => {
+    const modelName = normalizeText(item?.model).toLowerCase();
+    const idName = normalizeText(item?.id).toLowerCase();
+    const bareModel = modelName.split("/").pop();
+    const bareId = idName.split("/").pop();
+    return modelName === normalizedQuery
+      || idName === normalizedQuery
+      || (bareQuery && (bareModel === bareQuery || bareId === bareQuery));
+  }) || null;
 }
 
 function normalizeModelCatalog(models) {
@@ -119,8 +125,46 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+/**
+ * Parse an opencodex /v1/models response into bridge-ready model catalog entries.
+ * opencodex returns { id, reasoning_effort, reasoning_efforts:[{value,label}] }.
+ */
+function parseOpenCodeXModelCatalog(response, currentModel) {
+  const candidates = Array.isArray(response?.data)
+    ? response.data
+    : Array.isArray(response?.result?.data)
+      ? response.result.data
+      : [];
+  const adapted = candidates.map((entry) => ({
+    id: entry?.id,
+    model: entry?.id,
+    displayName: entry?.display_name || entry?.id,
+    defaultReasoningEffort: entry?.reasoning_effort || (
+      (entry?.reasoning_efforts || []).find((e) => e && e.default)?.value
+    ) || "",
+    supportedReasoningEfforts: (() => {
+      const declared = (entry?.reasoning_efforts || [])
+        .map((e) => e && e.value)
+        .filter(Boolean);
+      // opencodex 对 deepseek 等无 effort 声明的模型，补默认集合以保证默认 effort 校验通过
+      // 默认含 max/ultra：opencodex /v1/models 对 sub2 路由模型不暴露 ladder，但实际路由接受 max
+      return declared.length
+        ? declared
+        : ["low", "medium", "high", "xhigh", "max", "ultra"];
+    })(),
+  }));
+  const normalized = normalizeModelCatalog(adapted);
+  // 让 opencodex 的 isDefault 标记与当前请求的模型对齐
+  if (normalized.length && currentModel) {
+    const key = normalizeText(currentModel).toLowerCase();
+    normalized.forEach((m) => { m.isDefault = m.id.toLowerCase() === key || m.model.toLowerCase() === key; });
+  }
+  return normalized;
+}
+
 module.exports = {
   extractModelCatalogFromListResponse,
+  parseOpenCodeXModelCatalog,
   findModelByQuery,
   normalizeModelCatalog,
   normalizeText,
