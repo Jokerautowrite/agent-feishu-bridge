@@ -7,6 +7,10 @@
 - Added a native Gemini CLI backend using the official headless `stream-json` protocol, including streaming replies, tool events, token usage, session resume, interruption, attachments-as-local-path context, and Windows command-shim support.
 - Added contract tests for the Gemini adapter and card-action authorization.
 
+### Changed
+
+- Stopped prepending static Feishu bridge capability metadata to every user turn across all Agent backends. Per-message attachment context and group safety guards remain intact.
+
 ### Security
 
 - Reject outbound workspace files and workspace allowlist entries whose real path escapes through a symlink or junction.

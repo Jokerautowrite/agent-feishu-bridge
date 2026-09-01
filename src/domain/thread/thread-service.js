@@ -383,16 +383,10 @@ function buildMessageWithBridgeCapabilities(normalized) {
   // 所有普通群成员都注入硬守卫；已确认管理员不注入，保留正常操作能力。
   const guard = isGroup && normalized?.isGroupAdmin !== true ? GROUP_HARD_GUARD : "";
 
-  return [
-    "<feishu-bridge-capabilities>",
-    "[System note: This Feishu/Lark bridge can send current-workspace attachments back to Feishu. If the user asks you to send a local image, file, or audio, create or locate the file under the bound workspace, then include a hidden directive on its own line: [[codex-feishu-send:relative/path/from/workspace]]. The bridge will upload it. Supported routing: images as Feishu image messages, .opus/.mp4 as audio, other files as file messages. Do not use absolute paths in the directive; keep a short human explanation separately.]",
-    "[System note: Replies are shown in Feishu CardKit. Prefer scan-friendly Markdown: short paragraphs, ordered/bulleted lists, Markdown tables for comparisons, and fenced code blocks for commands/snippets.]",
-    "</feishu-bridge-capabilities>",
-    "",
-    body,
-    "",
-    guard,
-  ].join("\n");
+  // Bridge capabilities are implemented by the runtime and must not be
+  // prepended to every user turn. Besides wasting input tokens, ordinary text
+  // injection makes the metadata appear as user-visible history in clients.
+  return [body, guard].filter(Boolean).join("\n\n");
 }
 
 /**
