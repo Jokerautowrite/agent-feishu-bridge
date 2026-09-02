@@ -53,7 +53,11 @@ class CodexRpcClient {
     // ── 自动重连状态 ──────────────────────────────
     this.reconnectTimer = null;
     this.reconnectAttempts = 0;
-    this.reconnectMaxDelayMs = 30000;
+    // chuang bridge 与 app-server 的 unix socket 偶发断开时，指数退避重连。
+    // 原上限 30s：多次断连后多数等待停在 30s，累计可达数分钟无响应
+    // （表现为"有时候很慢/发消息不回"）。降到 8s，断连后快速恢复，
+    // 不影响正常连接，纯降低卡顿时长。
+    this.reconnectMaxDelayMs = 8000;
     this.reconnectBaseDelayMs = 1000;
     this.reconnectLoopRunning = false;
     this.reconnectWaiters = new Set(); // 断线期间等待重连的 sendRequest 回调
