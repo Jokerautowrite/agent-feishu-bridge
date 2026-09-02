@@ -177,10 +177,29 @@ class OpencodeRpcClient {
           }
           this.handleSseEvent(ev);
         }
+        // SSE 流非正常结束：serve 可能 reset 了本会话的长连接，等 idle 完成事件的
+        // pending turn 将永远收不到 turn/completed。主动 fail 这些 turn，
+        // 避免桥端无声卡死（表现为"不回复 / 干等 20 分钟超时"）。
+        if (!sub.stop && !this.sseStopped) {
+          this.failAllRunning("opencode SSE 连接中断，正在重连，请重试（连接非正常结束）。", key);
+        }
         this.log(`opencode SSE stream ended (directory=${key || "<root>"})`);
+        // 正常结束时同样自愈：删除旧订阅后 3s 重连，保证后续消息能重新收到 idle 事件。
+        if (!sub.stop && !this.sseStopped) {
+          await new Promise((r) => setTimeout(r, 3000));
+          if (!sub.stop && !this.sseStopped) {
+            this.sseSubs.delete(key);
+            this.subscribeDirectory(key).catch((err) => {
+              this.log("opencode SSE re-subscribe failed (" + (key || "<root>") + "): " + err.message);
+            });
+          }
+        }
       } catch (err) {
         if (!sub.stop && !this.sseStopped) {
           this.log(`opencode SSE subscribe error (${key || "<root>"}): ${err.message}; retrying in 3s`);
+          // 订阅出错往往意味着 serve 侧的连接已被 reset，等 idle 的 turn 同样会失联，
+          // 主动 fail，避免桥端无声卡死。随后走 3s 重连。
+          this.failAllRunning(`opencode SSE 订阅出错（${err.message}），已重连，请重试。`, key);
           await new Promise((r) => setTimeout(r, 3000));
           if (!sub.stop && !this.sseStopped) {
             this.sseSubs.delete(key);
@@ -711,6 +730,24 @@ class OpencodeRpcClient {
     run.toolItems.clear();
 
     this.emit("turn/completed", { threadId: tid, turnId });
+  }
+
+  failAllRunning(reason, directory) {
+    const reasonMsg = reason || "opencode SSE 连接中断，本回合结果可能不完整，请重试。";
+    let failed = 0;
+    for (const [sid, run] of this.running.entries()) {
+      if (!run || run.settled) continue;
+      run.settled = true;
+      if (run.firstTimer) clearTimeout(run.firstTimer);
+      if (run.turnTimer) clearTimeout(run.turnTimer);
+      this.running.delete(sid);
+      this.emit("turn/failed", { threadId: sid, turnId: run.turnId, error: { message: reasonMsg } });
+      failed++;
+    }
+    if (failed > 0) {
+      this.log("failAllRunning" + (directory ? " (" + directory + ")" : "") + ": failed " + failed + " pending turn(s): " + reasonMsg);
+    }
+    return failed;
   }
 
   // ── 兼容桥调用的其余方法 ────────────────────────────
