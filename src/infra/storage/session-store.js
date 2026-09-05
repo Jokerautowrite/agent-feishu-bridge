@@ -162,6 +162,49 @@ class SessionStore {
     };
   }
 
+  // Claude's bridge thread ID is separate from the CLI session ID. Persist
+  // both so a bridge restart can resume the real conversation.
+  getBackendSession(threadId) {
+    const normalizedThreadId = normalizeValue(threadId);
+    if (!normalizedThreadId) {
+      return { sessionId: "", cwd: "" };
+    }
+    const raw = this.state.backendSessionByThreadId?.[normalizedThreadId];
+    if (typeof raw === "string") {
+      return { sessionId: normalizeValue(raw), cwd: "" };
+    }
+    if (!raw || typeof raw !== "object") {
+      return { sessionId: "", cwd: "" };
+    }
+    return {
+      sessionId: normalizeValue(raw.sessionId),
+      cwd: normalizeValue(raw.cwd),
+    };
+  }
+
+  setBackendSession(threadId, { sessionId, cwd } = {}) {
+    const normalizedThreadId = normalizeValue(threadId);
+    if (!normalizedThreadId) {
+      return this.getBackendSession(threadId);
+    }
+
+    const nextSession = {
+      sessionId: normalizeValue(sessionId),
+      cwd: normalizeValue(cwd),
+    };
+    const current = this.getBackendSession(normalizedThreadId);
+    if (current.sessionId === nextSession.sessionId && current.cwd === nextSession.cwd) {
+      return current;
+    }
+
+    this.state.backendSessionByThreadId = {
+      ...(this.state.backendSessionByThreadId || {}),
+      [normalizedThreadId]: nextSession,
+    };
+    this.save();
+    return nextSession;
+  }
+
   setCodexParamsForWorkspace(bindingKey, workspaceRoot, { model, effort }) {
     const normalizedWorkspaceRoot = normalizeValue(workspaceRoot);
     if (!normalizedWorkspaceRoot) {
@@ -333,6 +376,7 @@ function createEmptyState() {
   return {
     schemaVersion: 1,
     bindings: {},
+    backendSessionByThreadId: {},
     approvalCommandAllowlistByWorkspaceRoot: {},
     groupAdmins: {},
     availableModelCatalog: {

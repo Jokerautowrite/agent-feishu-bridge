@@ -63,6 +63,7 @@
     "test:openclaw-adapter": "node ./scripts/test-openclaw-adapter.js",
     "test:hermes-adapter": "node ./scripts/test-hermes-adapter.js",
     "test:grok-adapter": "node ./scripts/test-grok-adapter.js",
+    "test:claude-adapter": "node ./scripts/test-claude-adapter.js",
     "test:group-service": "node ./scripts/test-group-service.js",
     "test:group-identity": "node ./scripts/test-group-identity.js",
     "test:group-admin": "node ./scripts/test-group-admin.js",

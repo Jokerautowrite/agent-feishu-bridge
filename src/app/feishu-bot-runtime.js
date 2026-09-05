@@ -83,6 +83,7 @@ class FeishuBotRuntime {
       logLevel: config.logLevel,
       requestTimeoutMs: config.codexRpcTimeoutMs,
       turnStartTimeoutMs: config.codexTurnStartTimeoutMs,
+      sessionStore: this.sessionStore,
     });
     this.codexAppServerProfile = config.codexAppServerProfile || "";
     this.lark = null;

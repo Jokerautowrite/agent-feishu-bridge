@@ -60,9 +60,12 @@ class ClaudeRpcClient {
     this.logLevel = opts.logLevel || "info";
     this.model = opts.model || process.env.CLAUDE_BRIDGE_MODEL || "";
     this.cwd = opts.workspaceRoot || DEFAULT_CWD;
+    this.command = opts.command || CLAUDE_BIN;
+    this.commandArgs = Array.isArray(opts.commandArgs) ? opts.commandArgs : [];
     this.listeners = [];
     this.threads = new Map();      // threadId -> { sessionId, cwd }
     this.running = new Map();      // threadId -> child process
+    this.sessionStore = opts.sessionStore || null;
     this.connected = false;
   }
 
@@ -96,7 +99,12 @@ class ClaudeRpcClient {
   }
   async resumeThread({ threadId }) {
     if (!threadId) throw new Error("thread/resume requires a non-empty threadId");
-    if (!this.threads.has(threadId)) this.threads.set(threadId, { sessionId: threadId, cwd: this.cwd });
+    const persisted = this.sessionStore?.getBackendSession(threadId) || {};
+    const cwd = persisted.cwd || this.cwd;
+    this.threads.set(threadId, {
+      sessionId: persisted.sessionId || null,
+      cwd,
+    });
     return this.threadResponse(threadId);
   }
   threadResponse(threadId) {
@@ -146,7 +154,11 @@ class ClaudeRpcClient {
   }) {
     let tid = threadId;
     if (!tid) ({ threadId: tid } = await this.startThread({ cwd: workspaceRoot }));
-    const st = this.threads.get(tid) || { sessionId: null, cwd: workspaceRoot || this.cwd };
+    const st = this.threads.get(tid) || {
+      ...(this.sessionStore?.getBackendSession(tid) || {}),
+      cwd: workspaceRoot || this.cwd,
+    };
+    st.resultFailed = false;
     const turnId = randomUUID();
 
     // Claude CLI 的 --resume 不能并发复用同一个 session。飞书端连续催问时，
@@ -172,7 +184,7 @@ class ClaudeRpcClient {
       if (files.length) prompt += "\n\n[附件]\n" + files.join("\n");
     }
 
-    const args = ["-p", prompt,
+    const args = [...this.commandArgs, "-p", prompt,
       "--output-format", "stream-json", "--verbose", "--include-partial-messages"];
     const rawModel = model || this.model;
     const m = normalizeModel(rawModel);
@@ -187,7 +199,7 @@ class ClaudeRpcClient {
 
     this.emit("turn/started", { threadId: tid, turnId });
 
-    const child = spawn(CLAUDE_BIN, args, {
+    const child = spawn(this.command, args, {
       cwd: st.cwd, env: this.env, stdio: ["ignore", "pipe", "pipe"],
     });
     this.running.set(tid, child);
@@ -241,9 +253,9 @@ class ClaudeRpcClient {
       for (const [id, type] of openItems) {
         this.emit("item/completed", { threadId: tid, turnId, item: { id, type } });
       }
-      if (code === 0) {
+      if (code === 0 && !st.resultFailed) {
         this.emit("turn/completed", { threadId: tid, turnId });
-      } else {
+      } else if (!st.resultFailed) {
         this.emit("turn/failed", {
           threadId: tid, turnId,
           error: { message: (stderr || `claude exited ${code}`).slice(0, 600) },
@@ -261,12 +273,30 @@ class ClaudeRpcClient {
     return { threadId: tid, turnId };
   }
 
+  persistBackendSession(threadId, state) {
+    if (!this.sessionStore || !state?.sessionId) {
+      return;
+    }
+    try {
+      this.sessionStore.setBackendSession(threadId, {
+        sessionId: state.sessionId,
+        cwd: state.cwd,
+      });
+    } catch (error) {
+      this.log(`failed to persist Claude session mapping: ${error.message}`);
+    }
+  }
+
   /** Claude stream-json 事件 → 桥认识的 Codex 事件。返回是否产出过正文。 */
   translate(ev, threadId, turnId, st, openItems) {
     const t = ev?.type;
 
     if (t === "system" && ev.subtype === "init") {
-      if (ev.session_id) { st.sessionId = ev.session_id; this.threads.set(threadId, st); }
+      if (ev.session_id) {
+        st.sessionId = ev.session_id;
+        this.threads.set(threadId, st);
+        this.persistBackendSession(threadId, st);
+      }
       return false;
     }
 
@@ -359,8 +389,13 @@ class ClaudeRpcClient {
     }
 
     if (t === "result") {
-      if (ev.session_id) { st.sessionId = ev.session_id; this.threads.set(threadId, st); }
+      if (ev.session_id) {
+        st.sessionId = ev.session_id;
+        this.threads.set(threadId, st);
+        this.persistBackendSession(threadId, st);
+      }
       if (ev.is_error) {
+        st.resultFailed = true;
         this.emit("turn/failed", {
           threadId, turnId, error: { message: String(ev.result || "unknown error").slice(0, 600) },
         });
