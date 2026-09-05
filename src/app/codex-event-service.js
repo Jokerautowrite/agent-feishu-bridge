@@ -58,7 +58,7 @@ function handleCodexMessage(runtime, message) {
   });
 
   codexMessageUtils.trackAssistantDeltaReceipt(runtime.assistantDeltaSeenByRunKey, message);
-  trackLatestTokenUsage(runtime, message);
+  const tokenUsageChanged = trackLatestTokenUsage(runtime, message);
   const toolUsageChanged = trackLatestToolUsage(runtime, message);
   const reasoningTraceChanged = trackLatestReasoningSummary(runtime, message);
   codexMessageUtils.trackRunKeyState(runtime.currentRunKeyByThreadId, runtime.activeTurnIdByThreadId, message);
@@ -66,7 +66,7 @@ function handleCodexMessage(runtime, message) {
   trackRunningTurnStartedAt(runtime, message);
   codexMessageUtils.trackPendingApproval(runtime.pendingApprovalByThreadId, message);
   runtime.pruneRuntimeMapSizes();
-  if (toolUsageChanged || reasoningTraceChanged) {
+  if (tokenUsageChanged || toolUsageChanged || reasoningTraceChanged) {
     refreshStreamingReplyCardForProgress(runtime, message);
   }
   if (!outbound) {
@@ -165,15 +165,20 @@ function resolveTerminalErrorRunKey(runtime, message) {
 
 function trackLatestTokenUsage(runtime, message) {
   if (message?.method !== "thread/tokenUsage/updated") {
-    return;
+    return false;
   }
   const params = message?.params || {};
   const threadId = params?.threadId || "";
   const usage = params?.tokenUsage || {};
   if (!threadId || !usage || typeof usage !== "object") {
-    return;
+    return false;
+  }
+  const previousUsage = runtime.latestTokenUsageByThreadId.get(threadId);
+  if (JSON.stringify(previousUsage) === JSON.stringify(usage)) {
+    return false;
   }
   runtime.latestTokenUsageByThreadId.set(threadId, usage);
+  return true;
 }
 
 function trackRunningTurnStartedAt(runtime, message) {

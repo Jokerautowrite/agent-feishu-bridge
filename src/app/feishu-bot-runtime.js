@@ -69,6 +69,7 @@ const CODEX_APP_SERVER_PROFILES = Object.freeze({
 });
 const INBOUND_MESSAGE_DEDUP_TTL_MS = 10 * 60 * 1000;
 const MAX_RECENT_INBOUND_MESSAGE_IDS = 1000;
+const FEISHU_WS_PING_TIMEOUT_SEC = 45;
 const GROUP_SECURITY_ALERT_COOLDOWN_MS = 10 * 60 * 1000;
 
 class FeishuBotRuntime {
@@ -84,6 +85,7 @@ class FeishuBotRuntime {
       logLevel: config.logLevel,
       requestTimeoutMs: config.codexRpcTimeoutMs,
       turnStartTimeoutMs: config.codexTurnStartTimeoutMs,
+      onTransportFailure: ({ error, source }) => this.handleCodexTransportFailure(error, source),
     });
     this.codexAppServerProfile = config.codexAppServerProfile || "";
     this.lark = null;
@@ -131,6 +133,7 @@ class FeishuBotRuntime {
     });
     this.staleTurnWatchdog = null;
     this.runtimeKeepalive = null;
+    this.feishuConnectionFailure = "";
     this.extensions = runtimeExtensions;
     this.codex.onMessage((message) => appDispatcher.onCodexMessage(this, message));
   }
@@ -191,10 +194,7 @@ class FeishuBotRuntime {
       appType: this.lark.AppType.SelfBuild,
       domain: this.lark.Domain.Feishu,
       loggerLevel: resolveFeishuLoggerLevel(this.lark, this.config.logLevel),
-      wsConfig: {
-        PingInterval: 30,
-        PingTimeout: 5,
-      },
+      ...createFeishuWsLifecycleCallbacks(this),
     });
     this.feishuAdapter = new FeishuClientAdapter(this.client);
     patchWsClientForCardCallbacks(this.wsClient);
@@ -228,8 +228,54 @@ class FeishuBotRuntime {
       },
     });
 
-    this.wsClient.start({ eventDispatcher });
+    const startResult = this.wsClient.start({ eventDispatcher });
+    if (startResult && typeof startResult.catch === "function") {
+      startResult.catch((error) => this.handleFeishuConnectionEvent("failed", error));
+    }
     console.log("[codex-im] Feishu long connection started");
+  }
+
+  handleFeishuConnectionEvent(state, error) {
+    const normalizedState = String(state || "").trim().toLowerCase();
+    const detail = String(error?.message || error || "").replace(/\s+/g, " ").trim().slice(0, 240);
+    if (normalizedState === "failed") {
+      this.feishuConnectionFailure = detail || "unknown error";
+      console.error(`[codex-im] Feishu long connection failed state=failed error=${this.feishuConnectionFailure}`);
+      return;
+    }
+    this.feishuConnectionFailure = "";
+    if (normalizedState === "reconnecting") {
+      console.warn("[codex-im] Feishu long connection state=reconnecting");
+      return;
+    }
+    if (normalizedState === "reconnected") {
+      console.log("[codex-im] Feishu long connection state=reconnected");
+      return;
+    }
+    if (normalizedState === "ready") {
+      console.log("[codex-im] Feishu long connection state=ready");
+    }
+  }
+
+  handleCodexTransportFailure(error, source) {
+    const detail = String(error?.message || error || "transport unavailable")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 240);
+    const transport = String(source || "transport").trim() || "transport";
+    for (const [threadId, turnId] of this.activeTurnIdByThreadId.entries()) {
+      if (!threadId || !turnId) {
+        continue;
+      }
+      appDispatcher.onCodexMessage(this, {
+        method: "turn/failed",
+        params: {
+          threadId,
+          turnId,
+          error: { message: `Codex ${transport}: ${detail || "connection unavailable"}` },
+        },
+      });
+    }
   }
 
   async refreshAvailableModelCatalogAtStartup() {
@@ -295,6 +341,14 @@ class FeishuBotRuntime {
     // long-connection runtime can otherwise fall out of Node's event loop.
     // Keep exactly one referenced timer alive for the lifetime of the bridge.
     this.runtimeKeepalive = setInterval(() => {
+      const feishuConnectionState = this.wsClient?.getConnectionStatus?.()?.state;
+      if (feishuConnectionState === "failed") {
+        console.error("[codex-im] Feishu long connection reached terminal failure; exiting for supervisor restart");
+        clearInterval(this.runtimeKeepalive);
+        this.runtimeKeepalive = null;
+        process.exit(1);
+        return;
+      }
       if (this.codex.mode !== "spawn" || !this.codex.child) {
         return;
       }
@@ -996,4 +1050,21 @@ function claimInboundMessage(cache, messageId, now = Date.now()) {
   return true;
 }
 
-module.exports = { FeishuBotRuntime, claimInboundMessage, handleInboundFeishuMessage };
+function createFeishuWsLifecycleCallbacks(runtime) {
+  return {
+    wsConfig: {
+      pingTimeout: FEISHU_WS_PING_TIMEOUT_SEC,
+    },
+    onReady: () => runtime.handleFeishuConnectionEvent("ready"),
+    onReconnecting: () => runtime.handleFeishuConnectionEvent("reconnecting"),
+    onReconnected: () => runtime.handleFeishuConnectionEvent("reconnected"),
+    onError: (error) => runtime.handleFeishuConnectionEvent("failed", error),
+  };
+}
+
+module.exports = {
+  FeishuBotRuntime,
+  claimInboundMessage,
+  createFeishuWsLifecycleCallbacks,
+  handleInboundFeishuMessage,
+};

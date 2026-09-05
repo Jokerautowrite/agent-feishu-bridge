@@ -811,6 +811,7 @@ function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
   if (entry.state === "streaming") {
     elements.push(buildCardKitStopButton(entry));
   }
+  elements.push(...buildCardKitFooter(runtime, entry));
 
   return {
     schema: "2.0",
@@ -1126,6 +1127,8 @@ function buildCardKitStatusSignature(runtime, runKey, entry) {
         summary: String(entry?.summary || ""),
       }))
       : [],
+    contextUsed: Number(tokenUsage?.last?.totalTokens || 0),
+    contextWindow: Number(tokenUsage?.modelContextWindow || 0),
     reasoning: Number(tokenUsage?.last?.reasoningOutputTokens || 0),
     notes: display.notes,
   });

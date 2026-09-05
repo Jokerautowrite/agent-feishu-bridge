@@ -22,6 +22,7 @@ class CodexRpcClient {
     logLevel = "normal",
     requestTimeoutMs = 45000,
     turnStartTimeoutMs = 60000,
+    onTransportFailure = null,
   }) {
     this.endpoint = endpoint;
     this.env = env;
@@ -31,6 +32,8 @@ class CodexRpcClient {
     this.logLevel = normalizeLogLevel(logLevel);
     this.requestTimeoutMs = requestTimeoutMs;
     this.turnStartTimeoutMs = turnStartTimeoutMs;
+    this.onTransportFailure = typeof onTransportFailure === "function" ? onTransportFailure : null;
+    this.transportFailureNotified = false;
     this.mode = endpoint ? "websocket" : "spawn";
     this.socket = null;
     this.child = null;
@@ -83,6 +86,7 @@ class CodexRpcClient {
     }
 
     this.child = child;
+    this.transportFailureNotified = false;
 
     child.on("error", (error) => {
       if (this.child !== child) {
@@ -90,6 +94,7 @@ class CodexRpcClient {
       }
       this.isReady = false;
       this.rejectAllPending(error);
+      this.notifyTransportFailure(error, "spawn-error");
       console.error(`[codex-im] failed to spawn Codex app-server via ${selectedCommand || this.codexCommand}: ${error.message}`);
     });
 
@@ -119,6 +124,7 @@ class CodexRpcClient {
       }
       this.isReady = false;
       this.rejectAllPending(error);
+      this.notifyTransportFailure(error, "stdin-error");
       console.error(`[codex-im] Codex app-server stdin failed: ${error.message}`);
     });
 
@@ -128,6 +134,7 @@ class CodexRpcClient {
       }
       this.isReady = false;
       this.rejectAllPending(new Error(`Codex app-server exited with code ${code}`));
+      this.notifyTransportFailure(new Error(`Codex app-server exited with code ${code}`), "spawn-close");
       console.error(`[codex-im] codex app-server exited with code ${code}`);
     });
   }
@@ -169,6 +176,7 @@ class CodexRpcClient {
     await new Promise((resolve, reject) => {
       const socket = new WebSocket(this.endpoint);
       this.socket = socket;
+      this.transportFailureNotified = false;
       let opened = false;
 
       socket.on("open", () => {
@@ -182,6 +190,7 @@ class CodexRpcClient {
           return;
         }
         this.rejectAllPending(error);
+        this.notifyTransportFailure(error, "websocket-error");
       });
       socket.on("message", (chunk) => {
         const message = typeof chunk === "string" ? chunk : chunk.toString("utf8");
@@ -191,7 +200,9 @@ class CodexRpcClient {
       });
       socket.on("close", () => {
         this.isReady = false;
-        this.rejectAllPending(new Error("Codex websocket closed"));
+        const error = new Error("Codex websocket closed");
+        this.rejectAllPending(error);
+        this.notifyTransportFailure(error, "websocket-close");
       });
     });
   }
@@ -199,6 +210,18 @@ class CodexRpcClient {
   onMessage(listener) {
     this.messageListeners.add(listener);
     return () => this.messageListeners.delete(listener);
+  }
+
+  notifyTransportFailure(error, source) {
+    if (this.transportFailureNotified || !this.onTransportFailure) {
+      return;
+    }
+    this.transportFailureNotified = true;
+    try {
+      this.onTransportFailure({ error, source });
+    } catch (callbackError) {
+      console.error(`[codex-im] transport failure callback failed: ${callbackError.message}`);
+    }
   }
 
   async initialize() {

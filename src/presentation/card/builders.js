@@ -378,7 +378,7 @@ function buildAssistantReplyFooterElements({
 
 function parseContextTextForProgress(contextText) {
   const text = String(contextText || "").trim();
-  const m = text.match(/^上下文\s+([0-9,.]+)\/([0-9,.]+)\s+\((\d+)%\)(?:\s*·\s*(.*))?$/);
+  const m = text.match(/^上下文\s+([0-9,.]+[kKmM]?)\/([0-9,.]+[kKmM]?)\s+\((\d+)%\)(?:\s*·\s*(.*))?$/);
   if (!m) {
     return null;
   }
