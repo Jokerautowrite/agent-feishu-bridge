@@ -12,7 +12,7 @@ const path = require("path");
 const DEFAULT_COMMAND = "grok";
 const DEFAULT_MODEL = "grok-build";
 const SUPPORTED_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
-const DEFAULT_FIRST_EVENT_TIMEOUT_MS = 45000;
+const DEFAULT_FIRST_EVENT_TIMEOUT_MS = 110000;
 const DEFAULT_TURN_TIMEOUT_MS = 15 * 60 * 1000;
 
 class GrokRpcClient {
@@ -23,7 +23,10 @@ class GrokRpcClient {
     this.defaultCwd = normalizeString(options.cwd || options.workspaceRoot) || process.cwd();
     this.model = normalizeString(options.model || this.env.GROK_MODEL) || DEFAULT_MODEL;
     this.models = parseConfiguredModels(this.env, this.model);
-    this.firstEventTimeoutMs = positiveNumber(options.firstEventTimeoutMs, DEFAULT_FIRST_EVENT_TIMEOUT_MS);
+    this.firstEventTimeoutMs = positiveNumber(
+      options.firstEventTimeoutMs ?? this.env.GROK_BRIDGE_FIRST_EVENT_MS,
+      DEFAULT_FIRST_EVENT_TIMEOUT_MS
+    );
     this.turnTimeoutMs = positiveNumber(options.turnTimeoutMs, DEFAULT_TURN_TIMEOUT_MS);
     this.probeTimeoutMs = positiveNumber(options.probeTimeoutMs, 5000);
     this.spawnImpl = options.spawnImpl || spawn;
