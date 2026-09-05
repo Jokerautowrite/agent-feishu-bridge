@@ -85,6 +85,7 @@ class FeishuBotRuntime {
       logLevel: config.logLevel,
       requestTimeoutMs: config.codexRpcTimeoutMs,
       turnStartTimeoutMs: config.codexTurnStartTimeoutMs,
+      sessionStore: this.sessionStore,
       onTransportFailure: ({ error, source }) => this.handleCodexTransportFailure(error, source),
     });
     this.codexAppServerProfile = config.codexAppServerProfile || "";
