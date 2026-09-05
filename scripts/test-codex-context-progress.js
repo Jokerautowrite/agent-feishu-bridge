@@ -53,7 +53,8 @@ async function main() {
   const footer = buildAssistantReplyFooterElements({
     statusEmoji: "!", status: "failed", contextText: "上下文 140.0k/200.0k (70%)",
   });
-  assert.equal(footer.find((element) => element.tag === "progress")?.value, 70);
+  assert.ok(!footer.some((element) => element.tag === "progress"), "Feishu rejects progress tags");
+  assert.match(JSON.stringify(footer), /70%/);
   assert.match(JSON.stringify(footer), /140\.0k\/200\.0k/);
 
   const createdCards = [];

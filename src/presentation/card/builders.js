@@ -357,19 +357,12 @@ function buildAssistantReplyFooterElements({
 
   const ctx = parseContextTextForProgress(contextText);
   if (ctx) {
-    elements.push({
-      tag: "progress",
-      mode: "default",
-      value: ctx.pct,
-      color: { tag: "color", color: ctx.pct >= 80 ? "red" : ctx.pct >= 50 ? "yellow" : "green" },
-      text: { tag: "plain_text", content: `${ctx.pct}%` },
-    });
     const advisory = ctx.advisory ? ` · ${escapeCardMarkdown(ctx.advisory)}` : "";
     elements.push({
       tag: "div",
       text: {
         tag: "lark_md",
-        content: `上下文 ${ctx.usedText}/${ctx.windowText}${advisory}`,
+        content: `上下文 ${ctx.usedText}/${ctx.windowText} (${ctx.pct}%)${advisory}`,
       },
     });
   }
