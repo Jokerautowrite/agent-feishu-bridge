@@ -69,7 +69,9 @@
     "test:group-authz": "node ./scripts/test-group-authz.js",
     "privacy:scan": "node ./scripts/privacy-scan.js",
     "pack:dry-run": "npm pack --dry-run",
-    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run test:command-docs && npm run test:backend-registry && npm run test:openclaw-adapter && npm run test:hermes-adapter && npm run test:grok-adapter && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
+    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run test:command-docs && npm run test:backend-registry && npm run test:openclaw-adapter && npm run test:hermes-adapter && npm run test:grok-adapter && npm run test:server-hardening && npm run test:groups && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run",
+    "test:server-hardening": "node ./scripts/test-attachment-security.js && node ./scripts/test-session-store.js && node ./scripts/test-log-redaction.js && node ./scripts/test-runtime-config.js",
+    "test:groups": "npm run test:group-service && npm run test:group-identity && npm run test:group-admin && npm run test:group-authz"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.73.0",
@@ -82,7 +84,7 @@
     "axios": "^1.19.0",
     "form-data": "^4.0.6",
     "protobufjs": "^7.6.5",
-    "qs": "^6.15.3",
+    "qs": "^6.16.0",
     "ws": "^8.21.3"
   }
 }

@@ -36,12 +36,23 @@ async function handleOutboundAttachmentDirectives(runtime, {
       continue;
     }
     runtime.sentAttachmentDirectiveKeys.add(key);
-    await sendWorkspaceAttachment(runtime, {
-      chatId,
-      workspaceRoot,
-      requestedPath,
-    });
-    sent += 1;
+    let delivered = false;
+    try {
+      delivered = await sendWorkspaceAttachment(runtime, { chatId, workspaceRoot, requestedPath });
+      if (delivered) sent += 1;
+    } catch {
+      // Neither filesystem errors nor transport payloads belong in the chat.
+      try {
+        await runtime.sendInfoCardMessage({
+          chatId,
+          text: "附件发送失败：请检查文件可读性与飞书连接后重试。",
+        });
+      } catch {
+        console.warn("[agent-bridge] attachment failure notice could not be delivered");
+      }
+    } finally {
+      if (!delivered) runtime.sentAttachmentDirectiveKeys.delete(key);
+    }
   }
   return { text: stripSendDirectives(text), sent };
 }
@@ -81,42 +92,87 @@ async function sendWorkspaceAttachment(runtime, { chatId, workspaceRoot, request
       chatId,
       text: `附件发送指令无效：${resolved.errorText}`,
     });
-    return;
-  }
-
-  const stats = await fs.promises.stat(resolved.filePath);
-  if (!stats.isFile()) {
-    await runtime.sendInfoCardMessage({
-      chatId,
-      text: `附件发送失败：只支持文件，不支持目录: ${resolved.displayPath}`,
-    });
-    return;
-  }
-  if (stats.size <= 0) {
-    await runtime.sendInfoCardMessage({
-      chatId,
-      text: `附件发送失败：文件为空: ${resolved.displayPath}`,
-    });
-    return;
+    return false;
   }
   const kind = classifyLocalAttachment(resolved.filePath);
-  const maxBytes = kind === "image" ? MAX_FEISHU_UPLOAD_IMAGE_BYTES : MAX_FEISHU_UPLOAD_FILE_BYTES;
-  if (stats.size > maxBytes) {
-    await runtime.sendInfoCardMessage({
-      chatId,
-      text: `附件发送失败：文件过大: ${resolved.displayPath}`,
-    });
-    return;
-  }
-
+  const fileBuffer = await readWorkspaceAttachment({
+    workspaceRoot,
+    filePath: resolved.filePath,
+    exportDir: runtime.config?.attachmentExportDir || "",
+    maxBytes: kind === "image" ? MAX_FEISHU_UPLOAD_IMAGE_BYTES : MAX_FEISHU_UPLOAD_FILE_BYTES,
+  });
   await runtime.sendLocalAttachmentToFeishu({
     kind,
     chatId,
     fileName: path.basename(resolved.filePath),
-    fileBuffer: await fs.promises.readFile(resolved.filePath),
+    fileBuffer,
     fileType: inferFeishuFileType(resolved.filePath),
     msgType: kind === "audio" ? "audio" : "file",
   });
+  return true;
+}
+
+async function readWorkspaceAttachment({ workspaceRoot, filePath, exportDir, maxBytes }) {
+  const root = await fs.promises.realpath(workspaceRoot);
+  const exportPath = path.resolve(workspaceRoot, exportDir || ".");
+  if (exportDir && (isAbsoluteWorkspacePath(exportDir) || !pathMatchesWorkspaceRoot(exportPath, workspaceRoot))) {
+    throw new Error("Invalid attachment export directory");
+  }
+  const allowedRoot = await fs.promises.realpath(exportPath);
+  const canonicalPath = await fs.promises.realpath(filePath);
+  if (!pathMatchesWorkspaceRoot(allowedRoot, root)
+      || !pathMatchesWorkspaceRoot(canonicalPath, allowedRoot)
+      || isSensitiveAttachmentPath(filePath, workspaceRoot)
+      || isSensitiveAttachmentPath(canonicalPath, root)) {
+    throw new Error("Attachment path is not allowed");
+  }
+
+  // NOFOLLOW protects the last component; on Linux the opened descriptor is
+  // also resolved so a parent-directory symlink swap cannot escape the root.
+  // NONBLOCK avoids hanging if a regular file is replaced by a FIFO.
+  const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0);
+  const handle = await fs.promises.open(canonicalPath, flags);
+  try {
+    const stats = await handle.stat();
+    if (!stats.isFile() || stats.size <= 0 || stats.size > maxBytes) {
+      throw new Error("Attachment is not a nonempty regular file within the size limit");
+    }
+    const openedPath = await fs.promises.realpath(
+      process.platform === "linux" ? `/proc/self/fd/${handle.fd}` : canonicalPath
+    );
+    if (openedPath !== canonicalPath || !pathMatchesWorkspaceRoot(openedPath, allowedRoot)) {
+      throw new Error("Attachment changed while opening");
+    }
+    const current = await fs.promises.stat(canonicalPath);
+    if (current.dev !== stats.dev || current.ino !== stats.ino) {
+      throw new Error("Attachment identity changed while opening");
+    }
+    // Read at most the checked size plus one byte, even if the file grows.
+    const buffer = Buffer.alloc(stats.size + 1);
+    let used = 0;
+    while (used < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, used, buffer.length - used, used);
+      if (!bytesRead) break;
+      used += bytesRead;
+    }
+    if (!used || used > stats.size || used > maxBytes) {
+      throw new Error("Attachment size changed while reading");
+    }
+    return buffer.subarray(0, used);
+  } finally {
+    await handle.close();
+  }
+}
+
+function isSensitiveAttachmentPath(filePath, root) {
+  const parts = normalizeWorkspacePath(path.relative(root, filePath)).toLowerCase().split("/");
+  const name = parts[parts.length - 1] || "";
+  return parts.some((part) => [".git", ".ssh", ".aws", ".gnupg", ".kube"].includes(part))
+    || /^\.env(?:$|\.)/.test(name)
+    || /^(auth|credentials|sessions?)\.json$/.test(name)
+    || /^(id_rsa|id_dsa|id_ecdsa|id_ed25519)(?:$|\.)/.test(name)
+    || /\.(pem|key|p12|pfx|sqlite|sqlite3)(?:$|-)/.test(name)
+    || (path.basename(root).toLowerCase() === ".codex" && name === "config.toml");
 }
 
 function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
@@ -127,7 +183,7 @@ function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
   if (isAbsoluteWorkspacePath(normalizedInput)) {
     return { errorText: "只支持当前项目下的相对路径，不支持绝对路径。" };
   }
-  const filePath = path.resolve(workspaceRoot, requestedPath);
+  const filePath = path.resolve(workspaceRoot, normalizedInput);
   if (!pathMatchesWorkspaceRoot(filePath, workspaceRoot)) {
     return { errorText: "路径不能跳出当前项目目录。" };
   }

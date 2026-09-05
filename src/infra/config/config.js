@@ -88,7 +88,11 @@ function readConfig() {
       "none"
     ),
     codexRpcTimeoutMs: readPositiveIntEnv(readCompatEnv("CODEX_IM_CODEX_RPC_TIMEOUT_MS"), 45000),
-    codexTurnStartTimeoutMs: readPositiveIntEnv(readCompatEnv("CODEX_IM_CODEX_TURN_START_TIMEOUT_MS"), 300000),
+    // This is an RPC acknowledgement deadline, not a total task duration.
+    codexTurnStartTimeoutMs: Math.min(
+      readPositiveIntEnv(readCompatEnv("CODEX_IM_CODEX_TURN_START_TIMEOUT_MS"), 60000),
+      300000
+    ),
     staleTurnTimeoutMs: readNonNegativeIntEnv(
       readCompatEnv("CODEX_IM_STALE_TURN_TIMEOUT_MS"),
       15 * 60 * 1000
@@ -97,6 +101,7 @@ function readConfig() {
     deliveryLedgerPath: readEnv("AGENT_HUB_DELIVERY_LEDGER"),
     attachmentsDir: readEnv("CODEX_IM_ATTACHMENTS_DIR")
       || path.join(os.homedir(), ".codex-feishu-bridge", "attachments"),
+    attachmentExportDir: readEnv("CODEX_IM_ATTACHMENT_EXPORT_DIR"),
     maxImageBytes: readPositiveIntEnv(readCompatEnv("CODEX_IM_MAX_IMAGE_BYTES"), 10 * 1024 * 1024),
     maxAttachmentBytes: readPositiveIntEnv(readCompatEnv("CODEX_IM_MAX_ATTACHMENT_BYTES"), 100 * 1024 * 1024),
     textOnlyImageModelPatterns: readTextOnlyImageModelPatternsEnv(

@@ -75,7 +75,11 @@ function walk(dir) {
 
 function scanFile(relPath) {
   const fullPath = path.join(ROOT, relPath);
-  let text = fs.readFileSync(fullPath, "utf8");
+  return scanText(relPath, fs.readFileSync(fullPath, "utf8"));
+}
+
+function scanText(relPath, input) {
+  let text = String(input);
   for (const term of ALLOWED_PUBLIC_TERMS) {
     text = text.replaceAll(term, "[allowed-public-owner]");
   }
@@ -86,7 +90,7 @@ function scanFile(relPath) {
     while ((match = pattern.re.exec(text)) !== null) {
       const before = text.slice(0, match.index);
       const line = before.split(/\r?\n/).length;
-      findings.push({ file: relPath, line, name: pattern.name, match: match[0] });
+      findings.push({ file: relPath, line, name: pattern.name });
     }
   }
   return findings;
@@ -98,11 +102,13 @@ function main() {
   if (findings.length) {
     console.error("Privacy scan failed:");
     for (const finding of findings) {
-      console.error(`${finding.file}:${finding.line} [${finding.name}] ${finding.match}`);
+      console.error(`${finding.file}:${finding.line} [${finding.name}] <redacted>`);
     }
     process.exit(1);
   }
   console.log(`Privacy scan passed (${files.length} files checked).`);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { scanText };

@@ -468,7 +468,7 @@ function summarizeRawCodexPayload(payload) {
   const size = Buffer.byteLength(String(payload || ""), "utf8");
   const parsed = tryParseJson(payload);
   if (!parsed) {
-    return `bytes=${size} raw=${JSON.stringify(String(payload || "").slice(0, 120))}`;
+    return `bytes=${size} <invalid JSON; content omitted>`;
   }
   return `${summarizeCodexMessage(parsed)} payloadBytes=${size}`;
 }
@@ -516,8 +516,8 @@ function summarizeCodexMessage(message) {
 }
 
 function logCodexParseFailure(rawMessage) {
-  const sample = String(rawMessage || "").slice(0, 300);
-  console.warn(`[codex-im] codex<= [parse_failed] raw=${JSON.stringify(sample)}`);
+  const bytes = Buffer.byteLength(String(rawMessage || ""), "utf8");
+  console.warn(`[codex-im] codex<= [parse_failed] bytes=${bytes} content omitted`);
 }
 
 function resolveDefaultCodexCommand(env = process.env) {

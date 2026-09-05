@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { randomUUID } = require("crypto");
 const { normalizeModelCatalog } = require("../../shared/model-catalog");
 
 class SessionStore {
@@ -16,29 +17,56 @@ class SessionStore {
   }
 
   load() {
+    const raw = readOptionalStateFile(this.filePath);
+    this.persistedRaw = raw;
+    this.recoveredFromBackup = false;
     try {
-      const raw = fs.readFileSync(this.filePath, "utf8");
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === "object" && parsed.bindings) {
-        this.state = {
-          ...createEmptyState(),
-          ...parsed,
-          bindings: parsed.bindings || {},
-          approvalCommandAllowlistByWorkspaceRoot: parsed.approvalCommandAllowlistByWorkspaceRoot || {},
-          groupAdmins: parsed.groupAdmins || {},
-          availableModelCatalog: parsed.availableModelCatalog || {
-            models: [],
-            updatedAt: "",
-          },
-        };
+      if (raw !== null) {
+        this.state = parseState(raw);
+      } else {
+        const backup = readOptionalStateFile(`${this.filePath}.backup`);
+        this.state = backup === null ? createEmptyState() : parseState(backup);
+        this.recoveredFromBackup = backup !== null;
       }
-    } catch {
-      this.state = createEmptyState();
+    } catch (error) {
+      if (error.code === "SESSION_STORE_UNSUPPORTED_VERSION") throw error;
+      const backup = readOptionalStateFile(`${this.filePath}.backup`);
+      if (backup === null) throw error;
+      this.state = parseState(backup);
+      this.recoveredFromBackup = true;
     }
+    if (this.recoveredFromBackup) {
+      console.warn("[agent-bridge] session store recovered from backup; original evidence will be retained");
+    }
+    this.committedState = JSON.stringify(this.state);
   }
 
   save() {
-    fs.writeFileSync(this.filePath, JSON.stringify(this.state, null, 2));
+    try {
+      // Detect stale instances. A session file must still have a single bridge
+      // writer; this check is not a cross-process/distributed lock.
+      if (readOptionalStateFile(this.filePath) !== this.persistedRaw) {
+        throw stateError("SESSION_STORE_CONFLICT", "Session store changed externally; reload before writing");
+      }
+      const nextState = parseState(JSON.stringify(this.state));
+      const serialized = JSON.stringify(nextState, null, 2);
+      if (this.persistedRaw !== null) {
+        if (this.recoveredFromBackup) {
+          const evidence = `${this.filePath}.corrupt-${randomUUID()}`;
+          fs.writeFileSync(evidence, this.persistedRaw, { flag: "wx", mode: 0o600 });
+        } else {
+          atomicWriteState(`${this.filePath}.backup`, this.persistedRaw);
+        }
+      }
+      atomicWriteState(this.filePath, serialized);
+      this.state = nextState;
+      this.persistedRaw = serialized;
+      this.committedState = JSON.stringify(nextState);
+      this.recoveredFromBackup = false;
+    } catch (error) {
+      this.state = JSON.parse(this.committedState);
+      throw error;
+    }
   }
 
   getGroupAdmins() {
@@ -303,6 +331,7 @@ function normalizeValue(value) {
 
 function createEmptyState() {
   return {
+    schemaVersion: 1,
     bindings: {},
     approvalCommandAllowlistByWorkspaceRoot: {},
     groupAdmins: {},
@@ -311,6 +340,57 @@ function createEmptyState() {
       updatedAt: "",
     },
   };
+}
+
+function stateError(code, message) {
+  return Object.assign(new Error(message), { code });
+}
+
+function readOptionalStateFile(filePath) {
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw stateError("SESSION_STORE_READ_FAILED", "Unable to read session store; existing state was not replaced");
+  }
+}
+
+function parseState(raw) {
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw stateError("SESSION_STORE_CORRUPT", "Invalid session JSON; restore a valid backup before continuing");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+      || !parsed.bindings || typeof parsed.bindings !== "object" || Array.isArray(parsed.bindings)) {
+    throw stateError("SESSION_STORE_CORRUPT", "Invalid session state shape; refusing to clear existing bindings");
+  }
+  if (parsed.schemaVersion !== undefined && parsed.schemaVersion !== 1) {
+    throw stateError("SESSION_STORE_UNSUPPORTED_VERSION", "Unsupported session state version; refusing to downgrade");
+  }
+  return { ...createEmptyState(), ...parsed, schemaVersion: 1 };
+}
+
+function atomicWriteState(filePath, data) {
+  const temporaryPath = `${filePath}.tmp-${randomUUID()}`;
+  const fd = fs.openSync(temporaryPath, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, data, "utf8");
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  // Failed writes retain their private temporary file for manual diagnosis.
+  fs.renameSync(temporaryPath, filePath);
+  if (process.platform !== "win32") {
+    const directory = fs.openSync(path.dirname(filePath), "r");
+    try {
+      fs.fsyncSync(directory);
+    } finally {
+      fs.closeSync(directory);
+    }
+  }
 }
 
 function getThreadMap(binding) {

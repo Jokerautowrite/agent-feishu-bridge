@@ -100,6 +100,7 @@ class FeishuBotRuntime {
     // chuang 2.0: 当前进度步骤卡所在的 runKey（首个 delta 到达时清掉进度文本再写正文）。
     this.progressRunKeyByThreadId = new Map();
     this.activeTurnStartedAtByThreadId = new Map();
+    this.activeTurnLastActivityAtByThreadId = new Map();
     this.turnSteerQueueByThreadId = new Map();
     this.turnFailureTextByRunKey = new Map();
     this.pendingApprovalByThreadId = new Map();
@@ -363,19 +364,27 @@ class FeishuBotRuntime {
   async clearStaleTurns(timeoutMs) {
     const now = Date.now();
     for (const [threadId, startedAt] of this.activeTurnStartedAtByThreadId.entries()) {
-      if (!startedAt || now - startedAt < timeoutMs) {
+      const lastActivityAt = this.activeTurnLastActivityAtByThreadId?.get(threadId) || startedAt;
+      if (!lastActivityAt || now - lastActivityAt < timeoutMs) {
         continue;
       }
       const context = this.pendingChatContextByThreadId.get(threadId);
       const turnId = this.activeTurnIdByThreadId.get(threadId) || "";
-      console.warn(
-        `[codex-im] stale turn detected thread=${threadId} turn=${turnId}; releasing Feishu runtime state`
-      );
       try {
         await this.clearPendingReactionForThread(threadId);
       } catch (error) {
         console.error(`[codex-im] failed to clear stale turn reaction: ${error.message}`);
       }
+      // A progress/terminal/new-turn event may have arrived while removing the reaction.
+      const latestActivityAt = this.activeTurnLastActivityAtByThreadId?.get(threadId) || startedAt;
+      if (this.activeTurnStartedAtByThreadId.get(threadId) !== startedAt
+        || (this.activeTurnIdByThreadId.get(threadId) || "") !== turnId
+        || Date.now() - latestActivityAt < timeoutMs) {
+        continue;
+      }
+      console.warn(
+        `[codex-im] stale turn detected thread=${threadId} turn=${turnId}; releasing Feishu runtime state`
+      );
       this.cleanupThreadRuntimeState(threadId);
       if (!context?.chatId) {
         continue;

@@ -18,6 +18,8 @@ const { classifyLocalAttachment, inferFeishuFileType } = require("../src/shared/
 function createRuntime() {
   const runtime = {
     activeTurnIdByThreadId: new Map(),
+    activeTurnStartedAtByThreadId: new Map(),
+    activeTurnLastActivityAtByThreadId: new Map(),
     currentRunKeyByThreadId: new Map(),
     replyCardByRunKey: new Map(),
     pendingChatContextByThreadId: new Map(),

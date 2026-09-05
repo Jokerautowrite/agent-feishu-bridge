@@ -152,6 +152,7 @@ function cleanupThreadRuntimeState(runtime, threadId) {
   runtime.pendingApprovalByThreadId.delete(threadId);
   runtime.activeTurnIdByThreadId.delete(threadId);
   runtime.activeTurnStartedAtByThreadId.delete(threadId);
+  runtime.activeTurnLastActivityAtByThreadId?.delete(threadId);
   if (runtime.turnSteerQueueByThreadId instanceof Map) {
     runtime.turnSteerQueueByThreadId.delete(threadId);
   }
@@ -177,6 +178,7 @@ function cleanupThreadRuntimeState(runtime, threadId) {
 function pruneRuntimeMapSizes(runtime) {
   pruneMapToLimit(runtime.activeTurnIdByThreadId, MAX_THREAD_CONTEXT_CACHE_ENTRIES);
   pruneMapToLimit(runtime.activeTurnStartedAtByThreadId, MAX_THREAD_CONTEXT_CACHE_ENTRIES);
+  pruneMapToLimit(runtime.activeTurnLastActivityAtByThreadId, MAX_THREAD_CONTEXT_CACHE_ENTRIES);
   pruneMapToLimit(runtime.currentRunKeyByThreadId, MAX_THREAD_CONTEXT_CACHE_ENTRIES);
   pruneMapToLimit(runtime.turnFailureTextByRunKey, MAX_THREAD_CONTEXT_CACHE_ENTRIES);
   pruneMapToLimit(runtime.reasoningTraceByRunKey, MAX_THREAD_CONTEXT_CACHE_ENTRIES);

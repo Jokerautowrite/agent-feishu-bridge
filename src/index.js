@@ -5,6 +5,7 @@ const dotenv = require("dotenv");
 
 const { readConfig } = require("./infra/config/config");
 const { FeishuBotRuntime } = require("./app/feishu-bot-runtime");
+const { installLogRedaction } = require("./shared/log-redaction");
 
 function loadEnv() {
   ensureDefaultConfigDirectory();
@@ -42,6 +43,7 @@ function ensureDefaultConfigDirectory() {
 }
 
 async function main() {
+  installLogRedaction();
   loadEnv();
   const config = readConfig();
 

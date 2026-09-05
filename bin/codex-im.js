@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 
 const fs = require("fs");
+const { installLogRedaction, redactSensitiveText } = require("../src/shared/log-redaction");
+installLogRedaction();
 const { main } = require("../src/index");
 
 function writeFatalDiagnostic(label, error = "") {
-  const detail = error instanceof Error ? (error.stack || error.message) : String(error || "");
+  const detail = redactSensitiveText(error instanceof Error ? (error.stack || error.message) : String(error || ""));
   const line = `${new Date().toISOString()} ${label}${detail ? `\n${detail}` : ""}\n`;
   try {
     if (process.env.AGENT_BRIDGE_FATAL_LOG) {
-      fs.appendFileSync(process.env.AGENT_BRIDGE_FATAL_LOG, line, "utf8");
+      fs.appendFileSync(process.env.AGENT_BRIDGE_FATAL_LOG, line, { encoding: "utf8", mode: 0o600 });
     }
   } catch {
     // Diagnostics must never mask the original failure.

@@ -3,6 +3,14 @@ const attachmentDirectives = require("../domain/attachments/outbound-directive-s
 const { formatFailureText } = require("../shared/error-text");
 
 const MAX_TURN_FAILURE_CACHE_ENTRIES = 500;
+const TURN_PROGRESS_METHODS = new Set([
+  "item/started", "item/completed", "item/agentMessage/delta", "item/plan/delta",
+  "item/commandExecution/outputDelta", "item/fileChange/outputDelta",
+  "item/reasoning/delta", "item/reasoning/textDelta",
+  "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
+  "item/reasoningSummary/delta", "item/reasoningSummary/summaryPartAdded",
+  "item/mcpToolCall/progress", "turn/plan/updated", "turn/diff/updated",
+]);
 
 async function handleStopCommand(runtime, normalized) {
   const { bindingKey, workspaceRoot } = runtime.getBindingContext(normalized);
@@ -184,11 +192,21 @@ function trackRunningTurnStartedAt(runtime, message) {
     return;
   }
   if (method === "turn/started" || method === "turn/start") {
-    runtime.activeTurnStartedAtByThreadId.set(threadId, Date.now());
+    const now = Date.now();
+    runtime.activeTurnStartedAtByThreadId.set(threadId, now);
+    runtime.activeTurnLastActivityAtByThreadId?.set(threadId, now);
     return;
   }
-  if (method === "turn/completed" || method === "turn/failed" || method === "turn/cancelled") {
+  if (isTerminalTurnMessage(message)) {
     runtime.activeTurnStartedAtByThreadId.delete(threadId);
+    runtime.activeTurnLastActivityAtByThreadId?.delete(threadId);
+    return;
+  }
+  const activeTurnId = runtime.activeTurnIdByThreadId.get(threadId);
+  if (TURN_PROGRESS_METHODS.has(method)
+    && runtime.activeTurnStartedAtByThreadId.has(threadId)
+    && (!params.turnId || !activeTurnId || params.turnId === activeTurnId)) {
+    runtime.activeTurnLastActivityAtByThreadId?.set(threadId, Date.now());
   }
 }
 
@@ -643,4 +661,5 @@ module.exports = {
   deliverToFeishu,
   handleCodexMessage,
   handleStopCommand,
+  trackRunningTurnStartedAt,
 };
