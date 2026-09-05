@@ -107,6 +107,17 @@ assert.strictEqual(
   const ignored = { chatType: "group", text: "随便聊聊", command: "message", mentions: [mention({ openId: "ou_other" })], chatId: "oc_g4", messageId: "om_4" };
   assert.strictEqual(await applyGroupMentionPolicy(policyRuntime, ignored), null, "not mentioned ignored");
 
+  const unresolvedBotRuntime = {
+    config: { groupMentionOnly: true },
+    requireFeishuAdapter: () => ({ getBotInfo: async () => ({}) }),
+  };
+  const unresolvedBotMessage = { chatType: "group", text: "普通消息", command: "message", mentions: [], chatId: "oc_unresolved", messageId: "om_unresolved" };
+  assert.strictEqual(
+    await applyGroupMentionPolicy(unresolvedBotRuntime, unresolvedBotMessage),
+    null,
+    "mention-only policy fails closed when bot identity cannot be resolved"
+  );
+
   // mention only, empty text → greeting, not passed through
   const emptyMention = { chatType: "group", text: "@小策", command: "message", mentions: [mention({ openId: BOT_OPEN_ID })], chatId: "oc_g5", messageId: "om_5" };
   assert.strictEqual(await applyGroupMentionPolicy(policyRuntime, emptyMention), null, "empty mention greeted not passed");

@@ -1,6 +1,6 @@
 const COMMAND_PREFIXES = [
   "/openclaw ", "/opencode ", "/claude ", "/hermes ",
-  "/chuang ", "/codex ", "/grok ", "/",
+  "/chuang ", "/codex ", "/grok ", "/gemini ", "/",
 ];
 
 function extractBindPath(text) {

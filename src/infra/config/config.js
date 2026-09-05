@@ -58,6 +58,7 @@ function readConfig() {
     codexCommand: readEnv("CODEX_IM_CODEX_COMMAND"),
     codexAppServerProfile: readEnv("CODEX_IM_CODEX_APP_SERVER_PROFILE"),
     defaultCodexModel: readEnv("CODEX_IM_DEFAULT_CODEX_MODEL"),
+    extraCodexModels: readListEnv(readCompatEnv("AGENT_BRIDGE_EXTRA_CODEX_MODELS")),
     defaultCodexEffort: readEnv("CODEX_IM_DEFAULT_CODEX_EFFORT"),
     defaultCodexAccessMode: readAccessModeEnv(readCompatEnv("CODEX_IM_DEFAULT_CODEX_ACCESS_MODE")),
     activeTurnFollowUpMode: readActiveTurnFollowUpModeEnv(

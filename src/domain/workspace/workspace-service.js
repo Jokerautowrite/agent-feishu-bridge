@@ -5,6 +5,7 @@ const {
   isWorkspaceAllowed,
   normalizeWorkspacePath,
   pathMatchesWorkspaceRoot,
+  resolveRealPathWithinWorkspace,
 } = require("../../shared/workspace-paths");
 const {
   extractBindPath,
@@ -427,7 +428,7 @@ async function handleSendCommand(runtime, normalized) {
     return;
   }
 
-  const resolvedTarget = resolveWorkspaceSendTarget(workspaceRoot, requestedPath);
+  const resolvedTarget = await resolveWorkspaceSendTarget(workspaceRoot, requestedPath);
   if (resolvedTarget.errorText) {
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
@@ -821,7 +822,7 @@ module.exports = {
   validateDefaultCodexParamsConfig,
 };
 
-function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
+async function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
   const normalizedInput = normalizeWorkspacePath(requestedPath);
   if (!normalizedInput) {
     return { errorText: "用法: `/send <当前项目下的相对文件路径>`" };
@@ -830,15 +831,31 @@ function resolveWorkspaceSendTarget(workspaceRoot, requestedPath) {
     return { errorText: "只支持当前项目下的相对路径，不支持绝对路径。" };
   }
 
-  const filePath = path.resolve(workspaceRoot, requestedPath);
-  const normalizedResolvedPath = normalizeWorkspacePath(filePath);
+  const candidatePath = path.resolve(workspaceRoot, requestedPath);
+  const normalizedResolvedPath = normalizeWorkspacePath(candidatePath);
   if (!pathMatchesWorkspaceRoot(normalizedResolvedPath, workspaceRoot)) {
     return { errorText: "文件路径超出了当前项目根目录。" };
   }
 
+  let filePath;
+  try {
+    filePath = await resolveRealPathWithinWorkspace(workspaceRoot, candidatePath);
+  } catch (error) {
+    if (error?.code === "ERR_WORKSPACE_PATH_ESCAPE") {
+      return { errorText: "文件路径最终指向当前项目目录之外，已拒绝发送。" };
+    }
+    if (error?.code === "ENOENT") {
+      return {
+        filePath: candidatePath,
+        displayPath: normalizeWorkspacePath(path.relative(workspaceRoot, candidatePath)) || path.basename(candidatePath),
+      };
+    }
+    throw error;
+  }
+
   return {
     filePath,
-    displayPath: normalizeWorkspacePath(path.relative(workspaceRoot, filePath)) || path.basename(filePath),
+    displayPath: normalizeWorkspacePath(path.relative(workspaceRoot, candidatePath)) || path.basename(candidatePath),
   };
 }
 

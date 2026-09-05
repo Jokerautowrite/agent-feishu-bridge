@@ -6,6 +6,7 @@ const BACKENDS = Object.freeze({
   openclaw: { modulePath: "./openclaw/rpc-client", exportName: "OpenClawRpcClient" },
   hermes: { modulePath: "./hermes/rpc-client", exportName: "HermesRpcClient" },
   grok: { modulePath: "./grok/rpc-client", exportName: "GrokRpcClient" },
+  gemini: { modulePath: "./gemini/rpc-client", exportName: "GeminiRpcClient" },
 });
 
 const LEGACY_BACKEND_ENV = Object.freeze({

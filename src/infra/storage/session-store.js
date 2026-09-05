@@ -27,6 +27,7 @@ class SessionStore {
         const backup = readOptionalStateFile(`${this.filePath}.backup`);
         this.state = backup === null ? createEmptyState() : parseState(backup);
         this.recoveredFromBackup = backup !== null;
+
       }
     } catch (error) {
       if (error.code === "SESSION_STORE_UNSUPPORTED_VERSION") throw error;
@@ -71,6 +72,70 @@ class SessionStore {
 
   getGroupAdmins() {
     return this.state.groupAdmins || {};
+  }
+
+  getChatTypes() {
+    return { ...(this.state.chatTypesByChatId || {}) };
+  }
+
+  setChatType(chatId, chatType) {
+    const normalizedChatId = normalizeValue(chatId);
+    const normalizedChatType = normalizeValue(chatType).toLowerCase();
+    if (!normalizedChatId || !normalizedChatType) {
+      return this.getChatTypes();
+    }
+    const current = this.state.chatTypesByChatId || {};
+    if (current[normalizedChatId] === normalizedChatType) {
+      return current;
+    }
+    this.state.chatTypesByChatId = {
+      ...current,
+      [normalizedChatId]: normalizedChatType,
+    };
+    this.save();
+    return this.state.chatTypesByChatId;
+  }
+  // Claude's bridge thread ID is separate from the CLI session ID. Persist
+  // both so a bridge restart can resume the real conversation.
+  getBackendSession(threadId) {
+    const normalizedThreadId = normalizeValue(threadId);
+    if (!normalizedThreadId) {
+      return { sessionId: "", cwd: "" };
+    }
+    const raw = this.state.backendSessionByThreadId?.[normalizedThreadId];
+    if (typeof raw === "string") {
+      return { sessionId: normalizeValue(raw), cwd: "" };
+    }
+    if (!raw || typeof raw !== "object") {
+      return { sessionId: "", cwd: "" };
+    }
+    return {
+      sessionId: normalizeValue(raw.sessionId),
+      cwd: normalizeValue(raw.cwd),
+    };
+  }
+
+  setBackendSession(threadId, { sessionId, cwd } = {}) {
+    const normalizedThreadId = normalizeValue(threadId);
+    if (!normalizedThreadId) {
+      return this.getBackendSession(threadId);
+    }
+
+    const nextSession = {
+      sessionId: normalizeValue(sessionId),
+      cwd: normalizeValue(cwd),
+    };
+    const current = this.getBackendSession(normalizedThreadId);
+    if (current.sessionId === nextSession.sessionId && current.cwd === nextSession.cwd) {
+      return current;
+    }
+
+    this.state.backendSessionByThreadId = {
+      ...(this.state.backendSessionByThreadId || {}),
+      [normalizedThreadId]: nextSession,
+    };
+    this.save();
+    return nextSession;
   }
 
   setGroupAdmins(groupAdmins) {
@@ -160,49 +225,6 @@ class SessionStore {
       model: normalizeValue(raw.model),
       effort: normalizeValue(raw.effort),
     };
-  }
-
-  // Claude's bridge thread ID is separate from the CLI session ID. Persist
-  // both so a bridge restart can resume the real conversation.
-  getBackendSession(threadId) {
-    const normalizedThreadId = normalizeValue(threadId);
-    if (!normalizedThreadId) {
-      return { sessionId: "", cwd: "" };
-    }
-    const raw = this.state.backendSessionByThreadId?.[normalizedThreadId];
-    if (typeof raw === "string") {
-      return { sessionId: normalizeValue(raw), cwd: "" };
-    }
-    if (!raw || typeof raw !== "object") {
-      return { sessionId: "", cwd: "" };
-    }
-    return {
-      sessionId: normalizeValue(raw.sessionId),
-      cwd: normalizeValue(raw.cwd),
-    };
-  }
-
-  setBackendSession(threadId, { sessionId, cwd } = {}) {
-    const normalizedThreadId = normalizeValue(threadId);
-    if (!normalizedThreadId) {
-      return this.getBackendSession(threadId);
-    }
-
-    const nextSession = {
-      sessionId: normalizeValue(sessionId),
-      cwd: normalizeValue(cwd),
-    };
-    const current = this.getBackendSession(normalizedThreadId);
-    if (current.sessionId === nextSession.sessionId && current.cwd === nextSession.cwd) {
-      return current;
-    }
-
-    this.state.backendSessionByThreadId = {
-      ...(this.state.backendSessionByThreadId || {}),
-      [normalizedThreadId]: nextSession,
-    };
-    this.save();
-    return nextSession;
   }
 
   setCodexParamsForWorkspace(bindingKey, workspaceRoot, { model, effort }) {
@@ -379,6 +401,7 @@ function createEmptyState() {
     backendSessionByThreadId: {},
     approvalCommandAllowlistByWorkspaceRoot: {},
     groupAdmins: {},
+    chatTypesByChatId: {},
     availableModelCatalog: {
       models: [],
       updatedAt: "",

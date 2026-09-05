@@ -1,3 +1,4 @@
+const fs = require("fs");
 const path = require("path");
 
 const WINDOWS_DRIVE_PATH_RE = /^[A-Za-z]:\//;
@@ -57,20 +58,51 @@ function pathMatchesWorkspaceRoot(candidatePath, workspaceRoot) {
   return workspacePathStartsWith(compareCandidate, compareWorkspaceRoot);
 }
 
+async function resolveRealPathWithinWorkspace(workspaceRoot, candidatePath) {
+  const resolvedWorkspaceRoot = path.resolve(workspaceRoot);
+  const resolvedCandidate = path.resolve(candidatePath);
+  if (!pathMatchesWorkspaceRoot(resolvedCandidate, resolvedWorkspaceRoot)) {
+    const error = new Error("Path escapes the workspace root.");
+    error.code = "ERR_WORKSPACE_PATH_ESCAPE";
+    throw error;
+  }
+
+  const [realWorkspaceRoot, realCandidate] = await Promise.all([
+    fs.promises.realpath(resolvedWorkspaceRoot),
+    fs.promises.realpath(resolvedCandidate),
+  ]);
+  if (!pathMatchesWorkspaceRoot(realCandidate, realWorkspaceRoot)) {
+    const error = new Error("Path resolves outside the workspace root.");
+    error.code = "ERR_WORKSPACE_PATH_ESCAPE";
+    throw error;
+  }
+  return realCandidate;
+}
+
 function isWorkspaceAllowed(workspaceRoot, allowlist) {
   if (!Array.isArray(allowlist) || allowlist.length === 0) {
     return true;
   }
 
-  const normalizedWorkspaceRoot = normalizeWorkspacePath(workspaceRoot);
+  const normalizedWorkspaceRoot = normalizeWorkspacePath(resolveExistingRealPath(workspaceRoot) || workspaceRoot);
   const compareWorkspaceRoot = normalizeComparableWorkspacePath(normalizedWorkspaceRoot);
 
   return allowlist.some((allowedRoot) => {
-    const normalizedAllowedRoot = normalizeWorkspacePath(allowedRoot);
+    const normalizedAllowedRoot = normalizeWorkspacePath(resolveExistingRealPath(allowedRoot) || allowedRoot);
     const compareAllowedRoot = normalizeComparableWorkspacePath(normalizedAllowedRoot);
     return compareWorkspaceRoot === compareAllowedRoot
       || workspacePathStartsWith(compareWorkspaceRoot, compareAllowedRoot);
   });
+}
+
+function resolveExistingRealPath(pathValue) {
+  const normalized = normalizeWorkspacePath(pathValue);
+  if (!normalized) return "";
+  try {
+    return fs.realpathSync.native(normalized);
+  } catch {
+    return "";
+  }
 }
 
 function filterThreadsByWorkspaceRoot(threads, workspaceRoot) {
@@ -120,4 +152,5 @@ module.exports = {
   isWorkspaceAllowed,
   normalizeWorkspacePath,
   pathMatchesWorkspaceRoot,
+  resolveRealPathWithinWorkspace,
 };

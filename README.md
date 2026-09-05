@@ -4,7 +4,7 @@
 
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D18-339933?logo=node.js&logoColor=white)](package.json)
 [![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blue)](#快速开始)
-[![Backends](https://img.shields.io/badge/backends-7-purple)](#支持的-agent-后端)
+[![Backends](https://img.shields.io/badge/backends-8-purple)](#支持的-agent-后端)
 [![License](https://img.shields.io/badge/license-custom-lightgrey)](LICENSE)
 
 ```text
@@ -45,6 +45,7 @@ agent-feishu-bridge
 | OpenClaw | `openclaw` | `openclaw agent --json` | 安装并完成 OpenClaw 配置 |
 | Hermes Agent | `hermes` | `hermes chat --quiet` | 安装并完成 Hermes Agent 配置 |
 | Grok | `grok` | `grok -p --output-format streaming-json` | 安装并登录 Grok CLI |
+| Gemini CLI | `gemini` | `gemini --prompt --output-format stream-json` | 安装并登录 Gemini CLI |
 
 默认后端是 `codex`。旧变量 `OPENCODE_BRIDGE_BACKEND`、`CLAUDE_BRIDGE_BACKEND` 和 `CHUANG_BRIDGE_BACKEND` 仍可兼容读取；新部署建议统一使用 `AGENT_BRIDGE_BACKEND`。
 
@@ -210,7 +211,15 @@ HERMES_MODEL=
 GROK_COMMAND=grok
 GROK_MODEL=grok-4.5
 GROK_MODELS=grok-4.5,grok-4.6
+
+# Gemini CLI
+AGENT_BRIDGE_GEMINI_COMMAND=gemini
+GEMINI_MODEL=
 ```
+
+Gemini 后端使用官方的 [Headless / stream-json 协议](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/headless.md)。先按[官方安装说明](https://github.com/google-gemini/gemini-cli/blob/main/docs/get-started/installation.mdx)安装并运行一次 `gemini` 完成登录，再设置 `AGENT_BRIDGE_BACKEND=gemini`。
+
+Gemini 的无界面模式无法把终端交互式确认原样转发到飞书。桥默认保留 Gemini 的安全审批策略，群聊普通成员强制使用 `--approval-mode plan`；只有当项目访问模式明确设置为 `full-access` 时，适配器才会传入 `--approval-mode yolo`。请只在可信私聊和可信工作区中启用完整访问。
 
 配置加载顺序：
 

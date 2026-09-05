@@ -46,7 +46,11 @@ const PANEL_CARD_ACTIONS = {
   },
   stop: {
     feedback: PANEL_ACTION_CONFIG.stop.feedback,
-    run: (runtime, normalized) => runtime.handleStopCommand(normalized),
+    run: (runtime, normalized, action) => runtime.handleStopCommand({
+      ...normalized,
+      threadId: action.threadId || normalized.threadId || "",
+      requestId: action.requestId || normalized.requestId || "",
+    }),
   },
   status: {
     feedback: PANEL_ACTION_CONFIG.status.feedback,

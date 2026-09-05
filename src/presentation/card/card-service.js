@@ -13,6 +13,7 @@ const {
   buildApprovalResolvedCard,
   buildAssistantReplyCard,
   buildCardResponse,
+  buildCardToast,
   buildInfoCard,
   mergeReplyText,
 } = require("./builders");
@@ -260,11 +261,20 @@ async function handleCardAction(runtime, data) {
   const chatId = messageNormalizers.extractCardChatId
     ? messageNormalizers.extractCardChatId(data)
     : "";
-  const chatType = typeof runtime.resolveChatType === "function"
+  const callbackChatType = messageNormalizers.extractCardChatType?.(data) || "";
+  const chatType = callbackChatType || (typeof runtime.resolveChatType === "function"
     ? runtime.resolveChatType(chatId)
-    : "";
-  const isAllowedOperator = !senderAllowlist.length
-    || isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType);
+    : "");
+  if (chatId && chatType && typeof runtime.setChatType === "function") {
+    runtime.setChatType(chatId, chatType);
+  }
+  const isAllowedOperator = isAllowedCardOperator(
+    runtime,
+    operatorSenderIds,
+    senderAllowlist,
+    chatType,
+    chatId
+  );
   console.log(
     `[codex-im] card callback kind=${action?.kind || "-"} action=${action?.action || "-"} `
     + `thread=${action?.threadId || "-"} request=${action?.requestId || "-"} selected=${action?.selectedValue || "-"}`
@@ -344,8 +354,26 @@ async function handleCardAction(runtime, data) {
   return buildCardResponse({});
 }
 
-function isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType) {
+function isAllowedCardOperator(runtime, operatorSenderIds, senderAllowlist, chatType, chatId) {
   const [openId = "", userId = ""] = operatorSenderIds;
+  const configuredAdminIds = [
+    ...(Array.isArray(runtime?.config?.adminOpenIds) ? runtime.config.adminOpenIds : []),
+    ...(Array.isArray(runtime?.config?.superAdminOpenIds) ? runtime.config.superAdminOpenIds : []),
+  ];
+  if (!Array.isArray(senderAllowlist) || senderAllowlist.length === 0) {
+    if (chatType === "p2p") {
+      return Boolean(openId || userId);
+    }
+    if (chatType !== "group") {
+      // Card callbacks may omit chat type. An explicitly configured admin is
+      // still safe to authorize; ordinary unknown-context senders fail closed.
+      return operatorSenderIds.some((id) => id && configuredAdminIds.includes(id));
+    }
+    return operatorSenderIds.some((id) => id && (
+      configuredAdminIds.includes(id)
+      || Boolean(runtime?.groupAdmins?.isAdmin?.(chatId, id))
+    ));
+  }
   // 私聊：open_id 随会话变化不可靠，只校验稳定的 user_id。
   if (chatType === "p2p") {
     return Boolean(userId && senderAllowlist.includes(userId));
@@ -354,7 +382,7 @@ function isAllowedCardOperator(operatorSenderIds, senderAllowlist, chatType) {
   if (chatType === "group") {
     return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
   }
-  // 未知会话类型：任一命中即可（宽松，避免误锁用户）。
+  // 显式白名单已配置时，未知会话类型仍可凭精确身份命中。
   return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
 }
 
@@ -373,7 +401,7 @@ function queueCardActionWithFeedback(runtime, normalized, feedbackText, task) {
       );
     }
   })());
-  return buildCardResponse({});
+  return buildCardToast(feedbackText);
 }
 
 function formatCardActionFailureText(error) {
@@ -793,6 +821,7 @@ function buildCardKitStreamingCard(runtime, runKey, entry, options = {}) {
   if (entry.state === "streaming") {
     elements.push(buildCardKitStopButton(entry));
   }
+  elements.push(...buildCardKitFooter(runtime, entry));
 
   return {
     schema: "2.0",
@@ -1108,6 +1137,8 @@ function buildCardKitStatusSignature(runtime, runKey, entry) {
         summary: String(entry?.summary || ""),
       }))
       : [],
+    contextUsed: Number(tokenUsage?.last?.totalTokens || 0),
+    contextWindow: Number(tokenUsage?.modelContextWindow || 0),
     reasoning: Number(tokenUsage?.last?.reasoningOutputTokens || 0),
     notes: display.notes,
   });
@@ -1684,6 +1715,7 @@ module.exports = {
   disposeReplyRunState,
   flushAssistantReplyCardNow,
   handleCardAction,
+  isAllowedCardOperator,
   movePendingReactionToThread,
   openCardKitCircuit,
   patchInteractiveCard,

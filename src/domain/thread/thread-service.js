@@ -355,12 +355,12 @@ const GROUP_HARD_GUARD = [
 
 /**
  * 群聊线程权限：
- * - 外部群（isExternalGroup，非免@白名单，需 @ 才回）→ 强制只读沙箱 + on-request 审批。
- * - 内部白名单群（管理员常驻）→ 维持配置（通常 full-access），不影响管理员干活。
+ * - 所有群聊普通成员 → 强制只读沙箱 + 硬守卫。
+ * - 已确认的群管理员 → 维持配置（通常 full-access）。
  * - 私聊维持配置。
  */
 function resolveTurnAccessMode(normalized, configuredAccessMode) {
-  if (normalized?.chatType === "group" && normalized?.isExternalGroup === true) {
+  if (normalized?.chatType === "group" && normalized?.isGroupAdmin !== true) {
     return "group-readonly";
   }
   return configuredAccessMode;
@@ -380,19 +380,13 @@ function buildMessageWithBridgeCapabilities(normalized) {
   const body = identityBlock
     ? `${identityBlock}${mentionMarker}${text}`
     : text;
-  // 硬守卫只注入外部群（非免@白名单）；内部白名单群不注入，避免干扰管理员正常操作。
-  const guard = isGroup && normalized?.isExternalGroup === true ? GROUP_HARD_GUARD : "";
+  // 所有普通群成员都注入硬守卫；已确认管理员不注入，保留正常操作能力。
+  const guard = isGroup && normalized?.isGroupAdmin !== true ? GROUP_HARD_GUARD : "";
 
-  return [
-    "<feishu-bridge-capabilities>",
-    "[System note: This Feishu/Lark bridge can send current-workspace attachments back to Feishu. If the user asks you to send a local image, file, or audio, create or locate the file under the bound workspace, then include a hidden directive on its own line: [[codex-feishu-send:relative/path/from/workspace]]. The bridge will upload it. Supported routing: images as Feishu image messages, .opus/.mp4 as audio, other files as file messages. Do not use absolute paths in the directive; keep a short human explanation separately.]",
-    "[System note: Replies are shown in Feishu CardKit. Prefer scan-friendly Markdown: short paragraphs, ordered/bulleted lists, Markdown tables for comparisons, and fenced code blocks for commands/snippets.]",
-    "</feishu-bridge-capabilities>",
-    "",
-    body,
-    "",
-    guard,
-  ].join("\n");
+  // Bridge capabilities are implemented by the runtime and must not be
+  // prepended to every user turn. Besides wasting input tokens, ordinary text
+  // injection makes the metadata appear as user-visible history in clients.
+  return [body, guard].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -412,6 +406,8 @@ module.exports = {
   handleNewCommand,
   handleSwitchCommand,
   refreshWorkspaceThreads,
+  buildMessageWithBridgeCapabilities,
+  resolveTurnAccessMode,
   resolveWorkspaceThreadState,
   switchThreadById,
 };

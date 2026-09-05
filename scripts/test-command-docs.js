@@ -20,4 +20,9 @@ assert.match(welcome, /\/bind/);
 assert.doesNotMatch(welcome, /\/codex bind/);
 assert.match(welcome, /飞书应用必备配置/);
 
+for (const installer of ["install.ps1", "install.sh"]) {
+  const content = fs.readFileSync(path.join(root, installer), "utf8");
+  assert.match(content, /gemini/, `${installer} should offer the Gemini backend`);
+}
+
 console.log("command docs fixtures ok");

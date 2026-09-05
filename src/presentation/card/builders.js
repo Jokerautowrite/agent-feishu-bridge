@@ -378,7 +378,7 @@ function buildAssistantReplyFooterElements({
 
 function parseContextTextForProgress(contextText) {
   const text = String(contextText || "").trim();
-  const m = text.match(/^上下文\s+([0-9,.]+)\/([0-9,.]+)\s+\((\d+)%\)(?:\s*·\s*(.*))?$/);
+  const m = text.match(/^上下文\s+([0-9,.]+[kKmM]?)\/([0-9,.]+[kKmM]?)\s+\((\d+)%\)(?:\s*·\s*(.*))?$/);
   if (!m) {
     return null;
   }
@@ -427,6 +427,7 @@ function resolveAgentMeta(backend) {
     openclaw: { name: "OpenClaw", icon: "🦞" },
     hermes: { name: "Hermes Agent", icon: "🪽" },
     grok: { name: "Grok", icon: "✕" },
+    gemini: { name: "Gemini CLI", icon: "✦" },
   };
   return known[normalized] || { name: normalized || "未知", icon: "❓", unknown: true };
 }
@@ -434,7 +435,7 @@ function resolveAgentMeta(backend) {
 function buildAgentLine(backend) {
   const meta = resolveAgentMeta(backend);
   if (meta.unknown) {
-    return `**${meta.icon} 当前智能体**：未识别（标识：${escapeCardMarkdown(meta.name)}）\n仅支持 codex / opencode / claude / chuang / openclaw / hermes / grok`;
+    return `**${meta.icon} 当前智能体**：未识别（标识：${escapeCardMarkdown(meta.name)}）\n仅支持 codex / opencode / claude / chuang / openclaw / hermes / grok / gemini`;
   }
   return `**${meta.icon} 当前智能体**：${meta.name} 桥`;
 }

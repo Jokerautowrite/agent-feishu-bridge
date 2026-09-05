@@ -9,6 +9,7 @@ const {
   handleOutboundAttachmentDirectives,
   stripSendDirectives,
 } = require("../src/domain/attachments/outbound-directive-service");
+const { isWorkspaceAllowed } = require("../src/shared/workspace-paths");
 
 async function main() {
   const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feishu-directive-"));
@@ -57,6 +58,30 @@ async function main() {
     text,
   });
   assert.strictEqual(duplicate.sent, 0);
+
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-feishu-directive-outside-"));
+  fs.writeFileSync(path.join(outsideRoot, "secret.txt"), "must-not-leak", "utf8");
+  const linkPath = path.join(workspaceRoot, "escape-link");
+  try {
+    fs.symlinkSync(outsideRoot, linkPath, process.platform === "win32" ? "junction" : "dir");
+    const escaped = await handleOutboundAttachmentDirectives(runtime, {
+      threadId: "thread-1",
+      turnId: "turn-escape",
+      chatId: "oc_test",
+      text: "No leak\n[[codex-feishu-send:escape-link/secret.txt]]",
+    });
+    assert.strictEqual(escaped.sent, 0, "rejected upload is not counted as sent");
+    assert.ok(sent.some((item) => item.kind === "info"), "an info card explains the rejection");
+    assert.match(sent.at(-1).text, /项目目录之外/);
+    assert.ok(!sent.some((item) => item.fileName === "secret.txt"), "symlink target must not be uploaded");
+    assert.strictEqual(
+      isWorkspaceAllowed(linkPath, [workspaceRoot]),
+      false,
+      "a workspace junction cannot bypass the workspace allowlist"
+    );
+  } finally {
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
 
   console.log("outbound directive fixtures ok");
 }

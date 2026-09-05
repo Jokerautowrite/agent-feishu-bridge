@@ -20,6 +20,7 @@ async function onFeishuTextEvent(runtime, event) {
     }
     normalized = groupResult;
     normalized = await enrichGroupSenderIdentity(runtime, normalized);
+    normalized.isGroupAdmin = isGroupSenderAdmin(runtime, normalized);
     // 恶意/敏感关键词硬拦截 + 动态风险分级：
     // - 非管理员命中 → 静默忽略（不发模型，防刷屏）；critical 额外私聊告警超级管理员。
     // - 管理员命中 → 放行但留审计日志（管理员可信，仅记录风险等级）。
@@ -33,7 +34,7 @@ async function onFeishuTextEvent(runtime, event) {
         hour: new Date().getHours(),
         recentCount: recentMessageCountForSender(normalized.senderId),
       });
-      if (isGroupSenderAdmin(runtime, normalized)) {
+      if (normalized.isGroupAdmin) {
         console.warn(
           `[codex-im] group security admin-passthrough kind=${security.kind} `
           + `level=${risk.level} score=${risk.score} keyword=${security.keyword} `
@@ -333,8 +334,8 @@ async function applyGroupMentionPolicy(runtime, normalized) {
     config.botOpenId || ""
   );
   if (!botOpenId) {
-    console.warn("[codex-im] group mention policy: cannot resolve bot open_id, allowing message");
-    return normalized;
+    console.warn("[codex-im] group mention policy: cannot resolve bot open_id, ignoring message");
+    return null;
   }
 
   const mentioned = groupService.isBotMentioned(normalized.mentions, botOpenId);
@@ -503,7 +504,7 @@ function buildGroupSteerText(normalized) {
   if (normalized?.chatType !== "group") {
     return String(normalized?.text || "");
   }
-  if (normalized?.isExternalGroup !== true) {
+  if (normalized?.isGroupAdmin === true) {
     return String(normalized?.text || "");
   }
   const senderName = String(normalized?.senderName || "").trim();

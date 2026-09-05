@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added a native Gemini CLI backend using the official headless `stream-json` protocol, including streaming replies, tool events, token usage, session resume, interruption, attachments-as-local-path context, and Windows command-shim support.
+- Added contract tests for the Gemini adapter and card-action authorization.
+
+### Changed
+
+- Stopped prepending static Feishu bridge capability metadata to every user turn across all Agent backends. Per-message attachment context and group safety guards remain intact.
+
+### Security
+
+- Reject outbound workspace files and workspace allowlist entries whose real path escapes through a symlink or junction.
+- Restrict group-card actions to recorded or configured administrators when no explicit sender allowlist is configured.
+- Enforce read-only mode and the hard safety guard for every non-admin group member, including mention-exempt groups.
+- Fail closed when mention-only mode cannot resolve the bot identity.
+
+### Verification
+
+- Added all group authorization suites and the new security suites to `npm run check:release`.
+
 ## v0.2.4 - 2026-05-12
 
 ### Added

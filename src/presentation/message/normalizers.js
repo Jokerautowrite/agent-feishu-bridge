@@ -137,6 +137,8 @@ function extractCardAction(data) {
       kind: value.kind,
       action: value.action || "",
       selectedValue,
+      threadId: value.threadId || "",
+      requestId: value.requestId || "",
     };
   }
   if (value.kind === "thread") {
@@ -178,7 +180,12 @@ function extractCardFormValue(action) {
 function normalizeCardActionContext(data, config) {
   const messageId = normalizeIdentifier(data?.context?.open_message_id);
   const chatId = extractCardChatId(data);
-  const senderId = normalizeIdentifier(data?.operator?.open_id);
+  const senderId = normalizeIdentifier(
+    data?.operator?.open_id
+      || data?.operator?.user_id
+      || data?.operator?.openId
+      || data?.operator?.userId
+  );
 
   if (!chatId || !messageId || !senderId) {
     console.log("[codex-im] card callback missing required context", {
@@ -200,6 +207,15 @@ function normalizeCardActionContext(data, config) {
     command: "",
     receivedAt: new Date().toISOString(),
   };
+}
+
+function extractCardChatType(data) {
+  return normalizeIdentifier(
+    data?.context?.chat_type
+      || data?.context?.chatType
+      || data?.chat_type
+      || data?.chatType
+  ).toLowerCase();
 }
 
 function mapCodexMessageToImEvent(message) {
@@ -489,7 +505,7 @@ function parseCommand(text) {
   // 命令前缀：通用 / 前缀优先（/bind 等），兼容旧用户 /codex、/claude、/opencode
   const COMMAND_PREFIXES = [
     "/openclaw", "/opencode", "/claude", "/hermes",
-    "/chuang", "/codex", "/grok", "/",
+    "/chuang", "/codex", "/grok", "/gemini", "/",
   ];
 
   const exactCommands = {
@@ -568,8 +584,10 @@ function matchesPrefixCommand(text, command, prefix) {
 function extractCardChatId(data) {
   return normalizeIdentifier(
     data?.context?.open_chat_id
+    || data?.context?.chat_id
     || data?.message?.chat_id
     || data?.chat_id
+    || data?.open_chat_id
     || data?.event?.message?.chat_id
   );
 }
@@ -612,6 +630,7 @@ module.exports = {
   extractCardOperatorSenderIds,
   mapCodexMessageToImEvent,
   normalizeCardActionContext,
+  extractCardChatType,
   normalizeFeishuTextEvent,
   parseCommand,
 };
