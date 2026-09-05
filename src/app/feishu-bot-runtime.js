@@ -80,6 +80,7 @@ class FeishuBotRuntime {
       env: process.env,
       codexCommand: config.codexCommand,
       appServerProfile: config.codexAppServerProfile,
+      extraModels: config.extraCodexModels,
       logLevel: config.logLevel,
       requestTimeoutMs: config.codexRpcTimeoutMs,
       turnStartTimeoutMs: config.codexTurnStartTimeoutMs,
@@ -95,7 +96,7 @@ class FeishuBotRuntime {
     });
     this.pendingChatContextByThreadId = new Map();
     this.pendingChatContextByBindingKey = new Map();
-    this.chatTypeByChatId = new Map();
+    this.chatTypeByChatId = new Map(Object.entries(this.sessionStore.getChatTypes?.() || {}));
     this.activeTurnIdByThreadId = new Map();
     this.activeTurnStartedAtByThreadId = new Map();
     this.turnSteerQueueByThreadId = new Map();
@@ -201,22 +202,7 @@ class FeishuBotRuntime {
 
   startLongConnection() {
     const eventDispatcher = new this.lark.EventDispatcher({}).register({
-      "im.message.receive_v1": async (data) => {
-        const messageId = String(data?.message?.message_id || "").trim();
-        const ledgerClaim = await this.deliveryReceipts.claimInbound(data);
-        if (ledgerClaim.duplicate) {
-          console.warn("[codex-im] ignored duplicate Feishu message from delivery ledger");
-          return;
-        }
-        if (!claimInboundMessage(this.recentInboundMessageIds, messageId)) {
-          console.warn(`[codex-im] ignored duplicate Feishu message id=${messageId || "-"}`);
-          return;
-        }
-        appDispatcher.onFeishuTextEvent(this, data).catch((error) => {
-          this.recentInboundMessageIds.delete(messageId);
-          console.error(`[codex-im] failed to process Feishu message: ${error.message}`);
-        });
-      },
+      "im.message.receive_v1": (data) => handleInboundFeishuMessage(this, data),
       "card.action.trigger": async (data) => appDispatcher.onFeishuCardAction(this, data),
       "im.chat.member.bot.added_v1": async (data) => {
         const chatId = String(data?.chat_id || "").trim();
@@ -645,6 +631,53 @@ class FeishuBotRuntime {
   }
 }
 
+async function handleInboundFeishuMessage(runtime, data) {
+  const messageId = String(data?.message?.message_id || "").trim();
+  const logMessageId = shortLogId(messageId || data?.header?.event_id);
+  console.log(`[codex-im] inbound stage=received message=${logMessageId}`);
+  try {
+    const ledgerClaim = await runtime.deliveryReceipts.claimInbound(data);
+    if (ledgerClaim.duplicate) {
+      console.warn(`[codex-im] inbound stage=duplicate_ledger message=${logMessageId}`);
+      return;
+    }
+    if (!claimInboundMessage(runtime.recentInboundMessageIds, messageId)) {
+      console.warn(`[codex-im] inbound stage=duplicate_memory message=${logMessageId}`);
+      return;
+    }
+
+    console.log(`[codex-im] inbound stage=dispatch_started message=${logMessageId}`);
+    const result = await appDispatcher.onFeishuTextEvent(runtime, data);
+    console.log(`[codex-im] inbound stage=dispatch_completed message=${logMessageId}`);
+    return result;
+  } catch (error) {
+    runtime.recentInboundMessageIds.delete(messageId);
+    console.error(`[codex-im] inbound stage=dispatch_failed message=${logMessageId} error=${error.message}`);
+    const chatId = String(data?.message?.chat_id || "").trim();
+    if (!chatId || typeof runtime.sendInfoCardMessage !== "function") {
+      return;
+    }
+    try {
+      await runtime.sendInfoCardMessage({
+        chatId,
+        replyToMessageId: messageId,
+        text: "处理消息时发生错误，详情已记录，请稍后重试。",
+        kind: "error",
+      });
+      console.log(`[codex-im] inbound stage=failure_feedback_sent message=${logMessageId}`);
+    } catch (feedbackError) {
+      console.error(
+        `[codex-im] inbound stage=failure_feedback_failed message=${logMessageId} error=${feedbackError.message}`
+      );
+    }
+  }
+}
+
+function shortLogId(value) {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized.slice(0, 16) : "-";
+}
+
 function attachRuntimeForwarders() {
   const proto = FeishuBotRuntime.prototype;
 
@@ -759,7 +792,11 @@ function attachRuntimeForwarders() {
     if (!normalizedChatId || !normalizedChatType) {
       return;
     }
+    if (this.chatTypeByChatId.get(normalizedChatId) === normalizedChatType) {
+      return;
+    }
     this.chatTypeByChatId.set(normalizedChatId, normalizedChatType);
+    this.sessionStore.setChatType?.(normalizedChatId, normalizedChatType);
   };
 
   proto.resolveChatType = function resolveChatType(chatId) {
@@ -959,4 +996,4 @@ function claimInboundMessage(cache, messageId, now = Date.now()) {
   return true;
 }
 
-module.exports = { FeishuBotRuntime, claimInboundMessage };
+module.exports = { FeishuBotRuntime, claimInboundMessage, handleInboundFeishuMessage };

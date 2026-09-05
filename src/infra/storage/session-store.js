@@ -26,6 +26,7 @@ class SessionStore {
           bindings: parsed.bindings || {},
           approvalCommandAllowlistByWorkspaceRoot: parsed.approvalCommandAllowlistByWorkspaceRoot || {},
           groupAdmins: parsed.groupAdmins || {},
+          chatTypesByChatId: parsed.chatTypesByChatId || {},
           availableModelCatalog: parsed.availableModelCatalog || {
             models: [],
             updatedAt: "",
@@ -43,6 +44,28 @@ class SessionStore {
 
   getGroupAdmins() {
     return this.state.groupAdmins || {};
+  }
+
+  getChatTypes() {
+    return { ...(this.state.chatTypesByChatId || {}) };
+  }
+
+  setChatType(chatId, chatType) {
+    const normalizedChatId = normalizeValue(chatId);
+    const normalizedChatType = normalizeValue(chatType).toLowerCase();
+    if (!normalizedChatId || !normalizedChatType) {
+      return this.getChatTypes();
+    }
+    const current = this.state.chatTypesByChatId || {};
+    if (current[normalizedChatId] === normalizedChatType) {
+      return current;
+    }
+    this.state.chatTypesByChatId = {
+      ...current,
+      [normalizedChatId]: normalizedChatType,
+    };
+    this.save();
+    return this.state.chatTypesByChatId;
   }
 
   setGroupAdmins(groupAdmins) {
@@ -306,6 +329,7 @@ function createEmptyState() {
     bindings: {},
     approvalCommandAllowlistByWorkspaceRoot: {},
     groupAdmins: {},
+    chatTypesByChatId: {},
     availableModelCatalog: {
       models: [],
       updatedAt: "",

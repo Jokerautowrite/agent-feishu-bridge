@@ -13,6 +13,7 @@ const {
   buildApprovalResolvedCard,
   buildAssistantReplyCard,
   buildCardResponse,
+  buildCardToast,
   buildInfoCard,
   mergeReplyText,
 } = require("./builders");
@@ -260,9 +261,13 @@ async function handleCardAction(runtime, data) {
   const chatId = messageNormalizers.extractCardChatId
     ? messageNormalizers.extractCardChatId(data)
     : "";
-  const chatType = typeof runtime.resolveChatType === "function"
+  const callbackChatType = messageNormalizers.extractCardChatType?.(data) || "";
+  const chatType = callbackChatType || (typeof runtime.resolveChatType === "function"
     ? runtime.resolveChatType(chatId)
-    : "";
+    : "");
+  if (chatId && chatType && typeof runtime.setChatType === "function") {
+    runtime.setChatType(chatId, chatType);
+  }
   const isAllowedOperator = isAllowedCardOperator(
     runtime,
     operatorSenderIds,
@@ -351,19 +356,21 @@ async function handleCardAction(runtime, data) {
 
 function isAllowedCardOperator(runtime, operatorSenderIds, senderAllowlist, chatType, chatId) {
   const [openId = "", userId = ""] = operatorSenderIds;
+  const configuredAdminIds = [
+    ...(Array.isArray(runtime?.config?.adminOpenIds) ? runtime.config.adminOpenIds : []),
+    ...(Array.isArray(runtime?.config?.superAdminOpenIds) ? runtime.config.superAdminOpenIds : []),
+  ];
   if (!Array.isArray(senderAllowlist) || senderAllowlist.length === 0) {
     if (chatType === "p2p") {
       return Boolean(openId || userId);
     }
     if (chatType !== "group") {
-      return false;
+      // Card callbacks may omit chat type. An explicitly configured admin is
+      // still safe to authorize; ordinary unknown-context senders fail closed.
+      return operatorSenderIds.some((id) => id && configuredAdminIds.includes(id));
     }
-    const adminIds = [
-      ...(Array.isArray(runtime?.config?.adminOpenIds) ? runtime.config.adminOpenIds : []),
-      ...(Array.isArray(runtime?.config?.superAdminOpenIds) ? runtime.config.superAdminOpenIds : []),
-    ];
     return operatorSenderIds.some((id) => id && (
-      adminIds.includes(id)
+      configuredAdminIds.includes(id)
       || Boolean(runtime?.groupAdmins?.isAdmin?.(chatId, id))
     ));
   }
@@ -394,7 +401,7 @@ function queueCardActionWithFeedback(runtime, normalized, feedbackText, task) {
       );
     }
   })());
-  return buildCardResponse({});
+  return buildCardToast(feedbackText);
 }
 
 function formatCardActionFailureText(error) {

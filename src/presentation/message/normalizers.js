@@ -180,7 +180,12 @@ function extractCardFormValue(action) {
 function normalizeCardActionContext(data, config) {
   const messageId = normalizeIdentifier(data?.context?.open_message_id);
   const chatId = extractCardChatId(data);
-  const senderId = normalizeIdentifier(data?.operator?.open_id);
+  const senderId = normalizeIdentifier(
+    data?.operator?.open_id
+      || data?.operator?.user_id
+      || data?.operator?.openId
+      || data?.operator?.userId
+  );
 
   if (!chatId || !messageId || !senderId) {
     console.log("[codex-im] card callback missing required context", {
@@ -202,6 +207,15 @@ function normalizeCardActionContext(data, config) {
     command: "",
     receivedAt: new Date().toISOString(),
   };
+}
+
+function extractCardChatType(data) {
+  return normalizeIdentifier(
+    data?.context?.chat_type
+      || data?.context?.chatType
+      || data?.chat_type
+      || data?.chatType
+  ).toLowerCase();
 }
 
 function mapCodexMessageToImEvent(message) {
@@ -570,8 +584,10 @@ function matchesPrefixCommand(text, command, prefix) {
 function extractCardChatId(data) {
   return normalizeIdentifier(
     data?.context?.open_chat_id
+    || data?.context?.chat_id
     || data?.message?.chat_id
     || data?.chat_id
+    || data?.open_chat_id
     || data?.event?.message?.chat_id
   );
 }
@@ -614,6 +630,7 @@ module.exports = {
   extractCardOperatorSenderIds,
   mapCodexMessageToImEvent,
   normalizeCardActionContext,
+  extractCardChatType,
   normalizeFeishuTextEvent,
   parseCommand,
 };

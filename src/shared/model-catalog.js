@@ -6,6 +6,13 @@ const GPT_5_6_REASONING_EFFORTS = Object.freeze([
   "max",
   "ultra",
 ]);
+const GPT_6_ASTRA_REASONING_EFFORTS = Object.freeze([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 
 function extractModelCatalogFromListResponse(response) {
   const candidates = Array.isArray(response?.result?.data)
@@ -81,13 +88,20 @@ function normalizeModelCatalog(models) {
 }
 
 function extendReasoningEffortsForModel(model, efforts) {
-  if (!/^gpt-5\.6(?:$|-)/i.test(normalizeText(model))) {
-    return efforts;
+  const normalizedModel = normalizeText(model);
+  if (/^gpt-6-astra(?:$|-)/i.test(normalizedModel)) {
+    return normalizeReasoningEfforts([
+      ...efforts,
+      ...GPT_6_ASTRA_REASONING_EFFORTS,
+    ]);
   }
-  return normalizeReasoningEfforts([
-    ...efforts,
-    ...GPT_5_6_REASONING_EFFORTS,
-  ]);
+  if (/^gpt-5\.6(?:$|-)/i.test(normalizedModel)) {
+    return normalizeReasoningEfforts([
+      ...efforts,
+      ...GPT_5_6_REASONING_EFFORTS,
+    ]);
+  }
+  return efforts;
 }
 
 function normalizeReasoningEfforts(efforts) {

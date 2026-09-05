@@ -172,7 +172,7 @@ class FeishuClientAdapter {
   async sendResourceMessage({ chatId, replyToMessageId = "", replyInThread = false, msgType, content }) {
     if (replyToMessageId) {
       const replyMessage = resolveReplyMessageMethod(this.client);
-      return replyMessage.call(this.client.im?.v1?.message || this.client.im?.message || this.client, {
+      return callFeishuMessageApi(replyMessage, this.client.im?.v1?.message || this.client.im?.message || this.client, {
         path: {
           message_id: normalizeMessageId(replyToMessageId),
         },
@@ -181,11 +181,11 @@ class FeishuClientAdapter {
           content,
           reply_in_thread: replyInThread,
         },
-      });
+      }, "message.reply");
     }
 
     const createMessage = resolveCreateMessageMethod(this.client);
-    return createMessage.call(this.client.im?.v1?.message || this.client.im?.message || this.client, {
+    return callFeishuMessageApi(createMessage, this.client.im?.v1?.message || this.client.im?.message || this.client, {
       params: {
         receive_id_type: "chat_id",
       },
@@ -194,13 +194,13 @@ class FeishuClientAdapter {
         msg_type: msgType,
         content,
       },
-    });
+    }, "message.create");
   }
 
   async sendInteractiveCard({ chatId, card, replyToMessageId = "", replyInThread = false }) {
     if (replyToMessageId) {
       const replyMessage = resolveReplyMessageMethod(this.client);
-      return replyMessage.call(this.client.im?.v1?.message || this.client.im?.message || this.client, {
+      return callFeishuMessageApi(replyMessage, this.client.im?.v1?.message || this.client.im?.message || this.client, {
         path: {
           message_id: normalizeMessageId(replyToMessageId),
         },
@@ -209,11 +209,11 @@ class FeishuClientAdapter {
           content: JSON.stringify(card),
           reply_in_thread: replyInThread,
         },
-      });
+      }, "message.reply");
     }
 
     const createMessage = resolveCreateMessageMethod(this.client);
-    return createMessage.call(this.client.im?.v1?.message || this.client.im?.message || this.client, {
+    return callFeishuMessageApi(createMessage, this.client.im?.v1?.message || this.client.im?.message || this.client, {
       params: {
         receive_id_type: "chat_id",
       },
@@ -222,19 +222,19 @@ class FeishuClientAdapter {
         msg_type: "interactive",
         content: JSON.stringify(card),
       },
-    });
+    }, "message.create");
   }
 
   async patchInteractiveCard({ messageId, card }) {
     const patchMessage = resolvePatchMessageMethod(this.client);
-    return patchMessage.call(this.client.im?.v1?.message || this.client.im?.message || this.client, {
+    return callFeishuMessageApi(patchMessage, this.client.im?.v1?.message || this.client.im?.message || this.client, {
       path: {
         message_id: messageId,
       },
       data: {
         content: JSON.stringify(card),
       },
-    });
+    }, "message.patch");
   }
 
   async createCardEntity({ card }) {
@@ -260,7 +260,7 @@ class FeishuClientAdapter {
     });
     if (replyToMessageId) {
       const replyMessage = resolveReplyMessageMethod(this.client);
-      return replyMessage.call(this.client.im?.v1?.message || this.client.im?.message || this.client, {
+      return callFeishuMessageApi(replyMessage, this.client.im?.v1?.message || this.client.im?.message || this.client, {
         path: {
           message_id: normalizeMessageId(replyToMessageId),
         },
@@ -269,11 +269,11 @@ class FeishuClientAdapter {
           content,
           reply_in_thread: replyInThread,
         },
-      });
+      }, "message.reply");
     }
 
     const createMessage = resolveCreateMessageMethod(this.client);
-    return createMessage.call(this.client.im?.v1?.message || this.client.im?.message || this.client, {
+    return callFeishuMessageApi(createMessage, this.client.im?.v1?.message || this.client.im?.message || this.client, {
       params: {
         receive_id_type: "chat_id",
       },
@@ -282,7 +282,7 @@ class FeishuClientAdapter {
         msg_type: "interactive",
         content,
       },
-    });
+    }, "message.create");
   }
 
   async streamCardContent({ cardId, elementId, content, sequence }) {
@@ -436,6 +436,12 @@ function resolveCreateMessageMethod(client) {
     throw new Error("Unsupported Feishu SDK shape: missing message.create");
   }
   return fn;
+}
+
+async function callFeishuMessageApi(method, target, payload, apiName) {
+  const response = await method.call(target, payload);
+  assertFeishuBusinessOk(response, apiName);
+  return response;
 }
 
 function resolveReplyMessageMethod(client) {

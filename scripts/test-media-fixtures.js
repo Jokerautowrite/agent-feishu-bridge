@@ -98,6 +98,9 @@ function testNonTextNormalizers() {
 
 async function testFeishuAdapterResources() {
   const calls = [];
+  let messageCreateResponse = { code: 0 };
+  let messageReplyResponse = { code: 0 };
+  let messagePatchResponse = { code: 0 };
   const fakeClient = {
     im: {
       v1: {
@@ -116,11 +119,15 @@ async function testFeishuAdapterResources() {
         message: {
           create: async (payload) => {
             calls.push(["message.create", payload]);
-            return { code: 0 };
+            return messageCreateResponse;
           },
           reply: async (payload) => {
             calls.push(["message.reply", payload]);
-            return { code: 0 };
+            return messageReplyResponse;
+          },
+          patch: async (payload) => {
+            calls.push(["message.patch", payload]);
+            return messagePatchResponse;
           },
         },
         messageResource: {
@@ -171,6 +178,52 @@ async function testFeishuAdapterResources() {
   assert.strictEqual(calls[4][1].path.message_id, "om_image");
   assert.strictEqual(calls[4][1].path.file_key, "img_key");
   assert.strictEqual(calls[4][1].params.type, "image");
+
+  const createdCard = await adapter.sendInteractiveCard({
+    chatId: "oc_test",
+    card: { schema: "2.0" },
+  });
+  assert.deepStrictEqual(createdCard, { code: 0 });
+  assert.strictEqual(calls[5][0], "message.create");
+
+  const repliedCard = await adapter.sendInteractiveCard({
+    chatId: "oc_test",
+    card: { schema: "2.0" },
+    replyToMessageId: "om_card:extra",
+  });
+  assert.deepStrictEqual(repliedCard, { code: 0 });
+  assert.strictEqual(calls[6][0], "message.reply");
+  assert.strictEqual(calls[6][1].path.message_id, "om_card");
+
+  const patchedCard = await adapter.patchInteractiveCard({
+    messageId: "om_card",
+    card: { schema: "2.0", body: [] },
+  });
+  assert.deepStrictEqual(patchedCard, { code: 0 });
+  assert.strictEqual(calls[7][0], "message.patch");
+  assert.strictEqual(calls[7][1].path.message_id, "om_card");
+
+  messageCreateResponse = { code: 230001, msg: "create rejected" };
+  await assert.rejects(
+    () => adapter.sendInteractiveCard({ chatId: "oc_test", card: { schema: "2.0" } }),
+    /Feishu message\.create failed: 230001 create rejected/
+  );
+
+  messageReplyResponse = { code: 230002, msg: "reply rejected" };
+  await assert.rejects(
+    () => adapter.sendInteractiveCard({
+      chatId: "oc_test",
+      card: { schema: "2.0" },
+      replyToMessageId: "om_card",
+    }),
+    /Feishu message\.reply failed: 230002 reply rejected/
+  );
+
+  messagePatchResponse = { code: 230003, msg: "patch rejected" };
+  await assert.rejects(
+    () => adapter.patchInteractiveCard({ messageId: "om_card", card: { schema: "2.0" } }),
+    /Feishu message\.patch failed: 230003 patch rejected/
+  );
 }
 
 main().catch((error) => {

@@ -48,5 +48,10 @@ assert.strictEqual(
   false,
   "unknown chat context fails closed without an explicit allowlist"
 );
+assert.strictEqual(
+  isAllowedCardOperator(runtime, ["ou_config_admin", ""], [], "", ""),
+  true,
+  "configured admins remain operable when a card callback omits chat context"
+);
 
 console.log("card authorization tests OK");

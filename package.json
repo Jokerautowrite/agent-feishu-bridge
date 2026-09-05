@@ -57,6 +57,7 @@
     "test:delivery-receipts": "node ./scripts/test-delivery-receipt-hook.js",
     "test:stale-turn-watchdog": "node ./scripts/test-stale-turn-watchdog.js",
     "test:active-turn-steer": "node ./scripts/test-active-turn-steer.js",
+    "test:inbound-handler": "node ./scripts/test-inbound-handler.js",
     "test:media": "node ./scripts/test-media-fixtures.js",
     "test:directives": "node ./scripts/test-outbound-directives.js",
     "test:command-docs": "node ./scripts/test-command-docs.js",
@@ -74,7 +75,7 @@
     "test:group-authz": "node ./scripts/test-group-authz.js",
     "privacy:scan": "node ./scripts/privacy-scan.js",
     "pack:dry-run": "npm pack --dry-run",
-    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run test:command-docs && npm run test:backend-registry && npm run test:bridge-message-context && npm run test:openclaw-adapter && npm run test:hermes-adapter && npm run test:grok-adapter && npm run test:gemini-adapter && npm run test:group-service && npm run test:group-identity && npm run test:group-admin && npm run test:group-authz && npm run test:card-authz && npm run test:stop-card-action && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
+    "check:release": "npm run check && npm run test:markdown && npm run test:card-content && npm run test:log-level && npm run test:delivery-receipts && npm run test:inbound-handler && npm run test:stale-turn-watchdog && npm run test:active-turn-steer && npm run test:media && npm run test:directives && npm run test:command-docs && npm run test:backend-registry && npm run test:bridge-message-context && npm run test:openclaw-adapter && npm run test:hermes-adapter && npm run test:grok-adapter && npm run test:gemini-adapter && npm run test:group-service && npm run test:group-identity && npm run test:group-admin && npm run test:group-authz && npm run test:card-authz && npm run test:stop-card-action && npm run privacy:scan && npm audit --omit=dev && npm run pack:dry-run"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.73.0",

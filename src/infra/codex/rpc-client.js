@@ -18,6 +18,7 @@ class CodexRpcClient {
     env = process.env,
     codexCommand = "",
     appServerProfile = "",
+    extraModels = [],
     logLevel = "normal",
     requestTimeoutMs = 45000,
     turnStartTimeoutMs = 60000,
@@ -26,6 +27,7 @@ class CodexRpcClient {
     this.env = env;
     this.codexCommand = codexCommand || resolveDefaultCodexCommand(env);
     this.appServerProfile = normalizeNonEmptyString(appServerProfile);
+    this.extraModels = normalizeModelIds(extraModels);
     this.logLevel = normalizeLogLevel(logLevel);
     this.requestTimeoutMs = requestTimeoutMs;
     this.turnStartTimeoutMs = turnStartTimeoutMs;
@@ -292,7 +294,31 @@ class CodexRpcClient {
   }
 
   async listModels() {
-    return this.sendRequest("model/list", {});
+    const response = await this.sendRequest("model/list", {});
+    if (!this.extraModels.length) {
+      return response;
+    }
+
+    const data = Array.isArray(response?.result?.data)
+      ? response.result.data
+      : Array.isArray(response?.data)
+        ? response.data
+        : [];
+    const known = new Set(data.map((item) => normalizeNonEmptyString(item?.model || item?.id).toLowerCase()));
+    const extra = this.extraModels
+      .filter((model) => !known.has(model.toLowerCase()))
+      .map((model) => ({ id: model, model, displayName: model }));
+    if (!extra.length) {
+      return response;
+    }
+    const merged = [...data, ...extra];
+    if (Array.isArray(response?.result?.data)) {
+      return { ...response, result: { ...response.result, data: merged } };
+    }
+    if (Array.isArray(response?.data)) {
+      return { ...response, data: merged };
+    }
+    return { ...response, result: { ...(response?.result || {}), data: merged } };
   }
 
   async sendRequest(method, params, options = {}) {
@@ -574,6 +600,24 @@ function buildSpawnSpec(command, appServerProfile = "") {
 
 function normalizeNonEmptyString(value) {
   return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+function normalizeModelIds(models) {
+  if (!Array.isArray(models)) {
+    return [];
+  }
+  const seen = new Set();
+  const result = [];
+  for (const model of models) {
+    const normalized = normalizeNonEmptyString(model);
+    const key = normalized.toLowerCase();
+    if (!normalized || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(normalized);
+  }
+  return result;
 }
 
 function buildStartThreadParams(cwd) {
