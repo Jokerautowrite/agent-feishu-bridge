@@ -31,11 +31,60 @@ const { randomUUID } = require("crypto");
 const DEFAULT_SERVER_URL = process.env.OPENCODE_SERVER_URL || "http://127.0.0.1:4096";
 const DEFAULT_AGENT = process.env.OPENCODE_AGENT || "build";
 // 首个事件的等待上限：超过就认定后端没起来，主动失败而不是让人干等
-const FIRST_EVENT_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_FIRST_EVENT_MS || 180000);
+const FIRST_EVENT_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_FIRST_EVENT_MS || 600000);
 // 单轮总时长上限
-const TURN_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_TURN_MS || 1200000);
+const TURN_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_TURN_MS || 172800000);
 const MAX_TEXT_BUFFER = 102_400;
 const SUPPORTED_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+
+// ── 稳定性辅助 ──────────────────────────────────────
+// POST 发送失败重试：opencode serve 偶发 fetch failed（连接被 reset），
+// 直接失败会丢消息；这里做短退避重试，最多 3 次。
+const POST_RETRIES = Number(process.env.OPENCODE_BRIDGE_POST_RETRIES || 3);
+const POST_RETRY_BASE_MS = Number(process.env.OPENCODE_BRIDGE_POST_RETRY_BASE_MS || 800);
+// POST 单次尝试的超时上限：serve 处理慢时避免无限挂起（默认 90s，可配）
+const POST_TIMEOUT_MS = Number(process.env.OPENCODE_BRIDGE_POST_TIMEOUT_MS || 7200000);
+async function postWithRetry(url, body, opts = {}) {
+  const maxAttempts = Math.max(1, POST_RETRIES);
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), POST_TIMEOUT_MS);
+    try {
+      const resp = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: opts.signal || controller.signal,
+      });
+      clearTimeout(timer);
+      return resp;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, POST_RETRY_BASE_MS * attempt));
+      }
+    }
+  }
+  throw lastErr;
+}
+
+// 把平铺 usage 包装成卡片端期望的 { last: {...}, modelContextWindow } 结构。
+// 卡片 formatContextText 只认 tokenUsage.last.totalTokens + modelContextWindow，
+// 平铺结构会让"📝 上下文 xx/xx (x%)"进度条行缺失。
+function wrapUsageForCard(usage, modelContextWindow) {
+  const last = {
+    inputTokens: Number(usage?.inputTokens || 0),
+    outputTokens: Number(usage?.outputTokens || 0),
+    reasoningTokens: Number(usage?.reasoningTokens || 0),
+    totalTokens: Number(usage?.totalTokens || 0),
+    reasoningOutputTokens: Number(usage?.reasoningOutputTokens || 0),
+  };
+  const out = { last };
+  if (modelContextWindow > 0) out.modelContextWindow = modelContextWindow;
+  return out;
+}
 
 function normalizeModelId(m) {
   const s = String(m || "").trim();
@@ -177,11 +226,19 @@ class OpencodeRpcClient {
           }
           this.handleSseEvent(ev);
         }
-        // SSE 流非正常结束：serve 可能 reset 了本会话的长连接，等 idle 完成事件的
-        // pending turn 将永远收不到 turn/completed。主动 fail 这些 turn，
-        // 避免桥端无声卡死（表现为"不回复 / 干等 20 分钟超时"）。
+        // SSE 流非正常结束：serve 可能 reset 了长连接。先触发重连，
+        // 给一个 grace 期（默认 20s）等 idle 事件回来；期间若重连成功且收到
+        // 对应 turn 的 idle 事件，turn 会正常 completeTurn。grace 期过后仍未
+        // 恢复才 fail，避免"一断就全部失败"的糟糕体验。
         if (!sub.stop && !this.sseStopped) {
-          this.failAllRunning("opencode SSE 连接中断，正在重连，请重试（连接非正常结束）。", key);
+          this.scheduleResubscribe(key);
+          const graceMs = Number(process.env.OPENCODE_BRIDGE_SSE_GRACE_MS || 20000);
+          this.log(`opencode SSE stream ended (dir=${key || "<root>"}); waiting ${Math.round(graceMs/1000)}s grace before failing pending turns`);
+          setTimeout(() => {
+            if (!sub.stop && !this.sseStopped) {
+              this.failAllRunning("opencode SSE 连接中断且未在宽限期内恢复，请重试（连接非正常结束）。", key);
+            }
+          }, graceMs);
         }
         this.log(`opencode SSE stream ended (directory=${key || "<root>"})`);
         // 正常结束时同样自愈：删除旧订阅后 3s 重连，保证后续消息能重新收到 idle 事件。
@@ -196,15 +253,14 @@ class OpencodeRpcClient {
         }
       } catch (err) {
         if (!sub.stop && !this.sseStopped) {
-          this.log(`opencode SSE subscribe error (${key || "<root>"}): ${err.message}; retrying in 3s`);
-          // 订阅出错往往意味着 serve 侧的连接已被 reset，等 idle 的 turn 同样会失联，
-          // 主动 fail，避免桥端无声卡死。随后走 3s 重连。
-          this.failAllRunning(`opencode SSE 订阅出错（${err.message}），已重连，请重试。`, key);
-          await new Promise((r) => setTimeout(r, 3000));
-          if (!sub.stop && !this.sseStopped) {
-            this.sseSubs.delete(key);
-            await this.subscribeDirectory(key);
-          }
+          this.log(`opencode SSE subscribe error (${key || "<root>"}): ${err.message}; resubscribing`);
+          this.scheduleResubscribe(key);
+          const graceMs = Number(process.env.OPENCODE_BRIDGE_SSE_GRACE_MS || 20000);
+          setTimeout(() => {
+            if (!sub.stop && !this.sseStopped) {
+              this.failAllRunning(`opencode SSE 订阅出错且未在宽限期内恢复（${err.message}），请重试。`, key);
+            }
+          }, graceMs);
         }
       } finally {
         this.sseSubs.delete(key);
@@ -212,6 +268,21 @@ class OpencodeRpcClient {
     })();
 
     return sub;
+  }
+
+  // 防抖重连：同一目录的多路断线事件只触发一路重连，避免并发订阅爆炸
+  scheduleResubscribe(directory) {
+    const key = String(directory || "");
+    if (this._resubTimers && this._resubTimers.has(key)) return;
+    if (!this._resubTimers) this._resubTimers = new Map();
+    this._resubTimers.set(key, setTimeout(() => {
+      this._resubTimers.delete(key);
+      if (this.sseStopped) return;
+      this.sseSubs.delete(key);
+      this.subscribeDirectory(key).catch((err) => {
+        this.log("opencode SSE re-subscribe failed (" + (key || "<root>") + "): " + err.message);
+      });
+    }, 3000));
   }
 
   async ping() {
@@ -513,20 +584,17 @@ class OpencodeRpcClient {
     // 确保 SSE 订阅已建立再发消息，避免错过首轮 idle 事件
     await this.sseReady.catch(() => {});
 
-    // 发起请求（异步，事件从 SSE 流回来）
-    const respPromise = fetch(`${this.serverUrl}/session/${sessionId}/message`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parts }),
-    }).catch((err) => {
-      if (!run.settled && run.sawText) {
-        // SSE 已经在流，POST 响应丢失不致命
-        this.log(`POST failed but SSE flowing: ${err.message}`);
+    // 发起请求（异步，事件从 SSE 流回来）。POST 失败自动重试（postWithRetry），
+    // 重试仍失败且 SSE 已开始流 → 消息其实已送达，不致命；否则 fail。
+    const respPromise = postWithRetry(`${this.serverUrl}/session/${sessionId}/message`, { parts })
+      .catch((err) => {
+        if (!run.settled && run.sawText) {
+          this.log(`POST failed but SSE flowing: ${err.message}`);
+          return null;
+        }
+        fail(`向 opencode 发送消息失败（已重试 ${POST_RETRIES} 次）：${err.message}`);
         return null;
-      }
-      fail(`向 opencode 发送消息失败：${err.message}`);
-      return null;
-    });
+      });
 
     respPromise.then(async (resp) => {
       if (!resp || run.settled) return;
@@ -539,15 +607,16 @@ class OpencodeRpcClient {
           // opencode 的 info.tokens 没有，需从 /config 的 limit.context 解析。
           // 否则卡片底部"📝 上下文 xx/xx (x%)"进度条行缺失。
           let emitUsage = usage;
+          let modelWindow = 0;
           try {
-            const window = await this.resolveSessionContextWindow(sessionId);
-            if (window > 0) {
-              emitUsage = { ...usage, modelContextWindow: window };
+            modelWindow = await this.resolveSessionContextWindow(sessionId);
+            if (modelWindow > 0) {
+              emitUsage = { ...usage, modelContextWindow: modelWindow };
             }
           } catch (e) {
             this.log(`resolve context window failed: ${e.message}`);
           }
-          this.emit("thread/tokenUsage/updated", { threadId: tid, tokenUsage: emitUsage });
+          this.emit("thread/tokenUsage/updated", { threadId: tid, tokenUsage: wrapUsageForCard(emitUsage, modelWindow) });
         }
         // 同步响应里若已有最终文本且 SSE 没给过正文，补一次
         if (!run.sawText) {
@@ -812,15 +881,12 @@ class OpencodeRpcClient {
       if (files.length) prompt += "\n\n[附件]\n" + files.join("\n");
     }
 
-    await fetch(`${this.serverUrl}/session/${normalized}/message`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ parts: [{ type: "text", text: prompt }] }),
-    }).catch((err) => {
-      // An accepted Feishu steer whose backend POST failed is a lost instruction.
-      // SSE staying alive only proves another request is running; it is not an ACK.
-      throw new Error(`向 opencode 注入引导消息失败：${err.message}`);
-    });
+    await postWithRetry(`${this.serverUrl}/session/${normalized}/message`, { parts: [{ type: "text", text: prompt }] })
+      .catch((err) => {
+        // An accepted Feishu steer whose backend POST failed is a lost instruction.
+        // SSE staying alive only proves another request is running; it is not an ACK.
+        throw new Error(`向 opencode 注入引导消息失败（已重试 ${POST_RETRIES} 次）：${err.message}`);
+      });
 
     return { threadId: normalized, turnId: run.turnId };
   }
