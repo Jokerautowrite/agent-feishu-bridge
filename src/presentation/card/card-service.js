@@ -1129,6 +1129,7 @@ function buildCardKitStatusSignature(runtime, runKey, entry) {
   const display = buildAssistantDisplayContent(entry);
   return JSON.stringify({
     state: entry.state,
+    progressHeartbeatAt: entry.progressHeartbeatAt || 0,
     toolCount: toolItems instanceof Set ? toolItems.size : 0,
     toolTrace: Array.isArray(toolTrace) ? toolTrace.filter(Boolean) : [],
     reasoningTrace: Array.isArray(reasoningTrace)
@@ -1462,6 +1463,21 @@ async function enqueueReplyCardFlush(runtime, runKey) {
   return flushPromise;
 }
 
+// Render liveness of the bridge, not invented model progress. This does not
+// update activeTurnLastActivityAt: a UI timer is NOT backend activity.
+async function refreshStreamingStatus(runtime, now = Date.now()) {
+  const updates = [];
+  for (const [runKey, entry] of runtime.replyCardByRunKey) {
+    if (entry.state !== "streaming" || !entry.messageId
+      || runtime.activeTurnIdByThreadId.get(entry.threadId) !== entry.turnId
+      || runtime.replyFlushInFlightByRunKey.has(runKey)
+      || now - (entry.progressHeartbeatAt || 0) < 30000) continue;
+    entry.progressHeartbeatAt = now;
+    updates.push(scheduleReplyCardFlush(runtime, runKey, { immediate: true }));
+  }
+  await Promise.all(updates);
+}
+
 async function addPendingReaction(runtime, bindingKey, messageId) {
   if (!bindingKey || !messageId) {
     return;
@@ -1636,7 +1652,7 @@ function formatThinkingText({
   }
 
   if (state === "streaming") {
-    sections.push("**当前动作**\n- 正在拆解任务并选择下一步验证方式。");
+    sections.push("**当前状态**\n- 本轮尚未结束；最新工具状态见执行面板。");
   }
 
   if (state === "failed") {
@@ -1652,8 +1668,8 @@ function formatThinkingText({
       : "**收口判断**\n- 已完成；最终结论见下方正文。");
   } else {
     sections.push(elapsed
-      ? `**当前状态**\n- 仍在处理，已运行约 ${elapsed}。`
-      : "**当前状态**\n- 正在处理。");
+      ? `**等待时长**\n- 本轮已持续约 ${elapsed}；正在等待后端的新输出或结束信号。`
+      : "**等待状态**\n- 正在等待后端的新输出或结束信号。");
   }
 
   if (reasoningTokens > 0) {
@@ -1720,6 +1736,7 @@ module.exports = {
   openCardKitCircuit,
   patchInteractiveCard,
   queueCardActionWithFeedback,
+  refreshStreamingStatus,
   resolveReplyCardModel,
   resolveReplyCardEffort,
   runCardActionTask,

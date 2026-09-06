@@ -46,6 +46,11 @@ async function applyApprovalDecision(runtime, {
   }
 
   try {
+    // Do not persist permission changes when response transport fails.
+    await runtime.codex.sendResponse(
+      approval.requestId,
+      codexMessageUtils.buildApprovalResponsePayload(decision)
+    );
     if (
       decision === "accept"
       && isWorkspaceScope
@@ -55,10 +60,6 @@ async function applyApprovalDecision(runtime, {
       runtime.rememberApprovalPrefixForWorkspace(resolvedWorkspaceRoot, approval.commandTokens);
     }
 
-    await runtime.codex.sendResponse(
-      approval.requestId,
-      codexMessageUtils.buildApprovalResponsePayload(decision)
-    );
     await markApprovalResolved(runtime, threadId, decision === "accept" ? "approved" : "rejected");
     return {
       error: null,

@@ -817,10 +817,8 @@ class OpencodeRpcClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ parts: [{ type: "text", text: prompt }] }),
     }).catch((err) => {
-      if (!run.settled && run.sawText) {
-        this.log(`steer POST failed but SSE flowing: ${err.message}`);
-        return null;
-      }
+      // An accepted Feishu steer whose backend POST failed is a lost instruction.
+      // SSE staying alive only proves another request is running; it is not an ACK.
       throw new Error(`向 opencode 注入引导消息失败：${err.message}`);
     });
 

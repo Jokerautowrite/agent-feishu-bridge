@@ -50,6 +50,17 @@ async function main() {
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(refreshed.length, 1, "unchanged usage must not enqueue duplicate refreshes");
 
+  // Public summary deltas are not agentMessage deltas: dropping them freezes
+  // progress while the backend is working. Never subscribe to private textDelta.
+  for (const delta of ["Checking ", "the files"]) {
+    handleCodexMessage(runtime, {
+      method: "item/reasoning/summaryTextDelta",
+      params: { threadId, turnId, itemId: "public-summary", delta },
+    });
+  }
+  assert.equal(refreshed.length, 3, "public summary chunks must refresh progress");
+  assert.equal(runtime.reasoningTraceByRunKey.get(runKey)?.[0]?.summary, "Checking the files");
+
   const footer = buildAssistantReplyFooterElements({
     statusEmoji: "!", status: "failed", contextText: "上下文 140.0k/200.0k (70%)",
   });
@@ -85,6 +96,22 @@ async function main() {
   assert.equal(updatedCards.length, 1, "usage change must update the existing CardKit card");
   assert.match(JSON.stringify(updatedCards[0]), /140\.0k\/200\.0k/);
   assert.match(JSON.stringify(updatedCards[0]), /\(70%\)/);
+  const { refreshStreamingStatus } = require("../src/presentation/card/card-service");
+  runtime.activeTurnLastActivityAtByThreadId = new Map([[threadId, Date.now() - 60000]]);
+  const activityBefore = runtime.activeTurnLastActivityAtByThreadId.get(threadId);
+  await refreshStreamingStatus(runtime, Date.now());
+  assert.equal(updatedCards.length, 2, "quiet but active turns must refresh the existing card");
+  const heartbeatCard = JSON.stringify(updatedCards.at(-1));
+  assert.match(heartbeatCard, /尚未结束/);
+  assert.doesNotMatch(heartbeatCard, /正在拆解任务/);
+  assert.match(heartbeatCard, /停止/);
+  await refreshStreamingStatus(runtime, Date.now() + 1000);
+  assert.equal(updatedCards.length, 2, "heartbeat refresh must be throttled");
+  assert.equal(runtime.activeTurnLastActivityAtByThreadId.get(threadId), activityBefore,
+    "UI heartbeat must never keep a dead backend alive in the watchdog");
+  runtime.activeTurnIdByThreadId.delete(threadId);
+  await refreshStreamingStatus(runtime, Date.now() + 40000);
+  assert.equal(updatedCards.length, 2, "heartbeat must not resurrect a finished task");
   const entry = runtime.replyCardByRunKey.get(runKey);
   const failedCard = buildCardKitFinalCard(runtime, { ...entry, state: "failed" });
   assert.match(JSON.stringify(failedCard), /140\.0k\/200\.0k/);

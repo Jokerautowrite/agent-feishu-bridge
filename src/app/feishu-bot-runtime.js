@@ -32,6 +32,7 @@ const {
   movePendingReactionToThread,
   patchInteractiveCard,
   queueCardActionWithFeedback,
+  refreshStreamingStatus,
   runCardActionTask,
   sendCardActionFeedback,
   sendCardActionFeedbackByContext,
@@ -379,6 +380,9 @@ class FeishuBotRuntime {
     // long-connection runtime can otherwise fall out of Node's event loop.
     // Keep exactly one referenced timer alive for the lifetime of the bridge.
     this.runtimeKeepalive = setInterval(() => {
+      refreshStreamingStatus(this).catch(() => {
+        console.error("[codex-im] streaming status heartbeat failed");
+      });
       const feishuConnectionState = this.wsClient?.getConnectionStatus?.()?.state;
       if (feishuConnectionState === "failed") {
         console.error("[codex-im] Feishu long connection reached terminal failure; exiting for supervisor restart");

@@ -267,6 +267,7 @@ function trackLatestReasoningSummary(runtime, message) {
   const itemType = String(item?.type || "").trim().toLowerCase();
   const isReasoningDelta = method === "item/reasoning/delta"
     || method === "item/reasoningSummary/delta"
+    || method === "item/reasoning/summaryTextDelta"
     || method === "item/reasoning/summaryPartAdded"
     || method === "item/reasoningSummary/summaryPartAdded";
 
@@ -282,9 +283,9 @@ function trackLatestReasoningSummary(runtime, message) {
       || ""
   ).trim();
   const itemId = String(item?.id || params?.itemId || "reasoning").trim();
-  const summary = normalizeReasoningSummaryText(
-    params?.delta || params?.summary || item?.summary || item?.text
-  );
+  const appendDelta = method === "item/reasoning/summaryTextDelta";
+  const rawSummary = params?.delta || params?.summary || item?.summary || item?.text;
+  const summary = appendDelta ? String(rawSummary || "") : normalizeReasoningSummaryText(rawSummary);
   if (!threadId || !turnId || !itemId || !summary) {
     return false;
   }
@@ -294,6 +295,7 @@ function trackLatestReasoningSummary(runtime, message) {
     turnId,
     itemId,
     summary,
+    appendDelta,
   });
 }
 
@@ -320,13 +322,15 @@ function recordToolTrace(runtime, { threadId, turnId, itemId, summary }) {
   return isNewTool || traceChanged;
 }
 
-function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary }) {
+function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary, appendDelta = false }) {
   if (!(runtime.reasoningTraceByRunKey instanceof Map)) {
     runtime.reasoningTraceByRunKey = new Map();
   }
   const runKey = `${String(threadId || "")}:${String(turnId || "")}`;
   const normalizedItemId = String(itemId || "").trim();
-  const normalizedSummary = normalizeReasoningSummaryText(summary);
+  const normalizedSummary = appendDelta
+    ? String(summary || "").replace(/\u0000/g, "").replace(/\r\n/g, "\n").slice(0, 2400)
+    : normalizeReasoningSummaryText(summary);
   if (!runKey || !normalizedItemId || !normalizedSummary) {
     return false;
   }
@@ -334,7 +338,9 @@ function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary }) {
   const trace = runtime.reasoningTraceByRunKey.get(runKey) || [];
   const index = trace.findIndex((entry) => entry?.itemId === normalizedItemId);
   const previous = index >= 0 ? String(trace[index]?.summary || "") : "";
-  const merged = mergeReasoningSummary(previous, normalizedSummary);
+  const merged = appendDelta
+    ? (previous + normalizedSummary).slice(0, 2400)
+    : mergeReasoningSummary(previous, normalizedSummary);
   if (merged === previous) {
     return false;
   }

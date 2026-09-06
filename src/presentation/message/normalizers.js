@@ -122,6 +122,15 @@ function extractCardAction(data) {
     return null;
   }
 
+  if (value.kind === "interaction") {
+    return {
+      kind: "interaction",
+      interactionId: value.interactionId || "",
+      action: value.action || "",
+      decision: value.decision || "",
+      formValue: extractCardFormValue(action),
+    };
+  }
   if (value.kind === "approval") {
     return {
       kind: value.kind,
