@@ -57,6 +57,14 @@ function handleCodexMessage(runtime, message) {
   }
 
   rememberTerminalError(runtime, message);
+
+  // 上游（5yuantoken.org 等）502/503 时 codex 内部会 Reconnecting n/5 重试。
+  // 重试期间若飞书端无任何可见反馈，桥表现为无声黑盒（用户感知"半死不活"）。
+  // 把重连进度实时打到流式卡片上，重连成功后续正文/delta 自然覆盖该提示。
+  const reconnectStepText = extractReconnectProgressText(message);
+  if (reconnectStepText) {
+    refreshStreamingReplyCardForProgress(runtime, message, { stepText: reconnectStepText });
+  }
   const outbound = codexMessageUtils.mapCodexMessageToImEvent(message, {
     suppressCompletedAssistantText: codexMessageUtils.shouldSuppressCompletedAssistantText(
       runtime.assistantDeltaSeenByRunKey,
@@ -421,6 +429,34 @@ function refreshStreamingReplyCardForProgress(runtime, message, options = {}) {
   }).catch((error) => {
     console.error(`[codex-im] failed to refresh streaming progress card: ${error.message}`);
   });
+}
+
+/**
+ * 从 chuang turn/progress 事件提取"正在做什么"的人类可读文本。
+ * 服务端 TerminalEvent：step_started / model_started / tool_started 等。
+ * 这样飞书端在整轮完成前就能看到工作步骤（不再黑盒等整段回复）。
+ */
+/**
+ * 从 codex 的 error 事件（willRetry=true 且 message 形如 "Reconnecting... 1/5"）
+ * 提取"上游重连中 (n/5)"的人类可读提示。
+ * 返回 null 表示不是可展示的重连进度（不打扰正常流程）。
+ */
+function extractReconnectProgressText(message) {
+  if (message?.method !== "error") {
+    return null;
+  }
+  const params = message?.params || {};
+  if (!params?.willRetry) {
+    return null;
+  }
+  const raw = String(params?.error?.message || "");
+  const match = raw.match(/Reconnecting(?:\.\.\.)?\s*(\d+)\s*\/\s*(\d+)/i);
+  if (!match) {
+    return null;
+  }
+  const attempt = match[1];
+  const total = match[2];
+  return total ? "上游连接中断，正在重连（" + attempt + "/" + total + "）…" : "上游连接中断，正在重连…";
 }
 
 /**
