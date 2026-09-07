@@ -481,6 +481,17 @@ function buildWelcomeCard({
   };
 }
 
+function withCardThreadScope(card, threadKey) {
+  if (!threadKey) return card;
+  const visit = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (node.value?.kind) node.value.threadKey = threadKey;
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(card);
+  return card;
+}
+
 function buildStatusPanelCard({
   workspaceRoot,
   codexParams,
@@ -494,6 +505,7 @@ function buildStatusPanelCard({
   noticeText = "",
   backend = "",
   quickCommandOptions = [],
+  threadKey = "",
 }) {
   const isRunning = status?.code === "running";
   const currentThreadStatusText = status?.code === "running"
@@ -615,7 +627,7 @@ function buildStatusPanelCard({
     );
   }
 
-  return {
+  return withCardThreadScope({
     schema: "2.0",
     config: {
       wide_screen_mode: true,
@@ -624,10 +636,10 @@ function buildStatusPanelCard({
     body: {
       elements,
     },
-  };
+  }, threadKey);
 }
 
-function buildThreadPickerCard({ workspaceRoot, threads, currentThreadId }) {
+function buildThreadPickerCard({ workspaceRoot, threads, currentThreadId, threadKey = "" }) {
   const elements = [
     {
       tag: "markdown",
@@ -662,7 +674,7 @@ function buildThreadPickerCard({ workspaceRoot, threads, currentThreadId }) {
     }
   );
 
-  return {
+  return withCardThreadScope({
     schema: "2.0",
     config: {
       wide_screen_mode: true,
@@ -671,7 +683,7 @@ function buildThreadPickerCard({ workspaceRoot, threads, currentThreadId }) {
     body: {
       elements,
     },
-  };
+  }, threadKey);
 }
 
 function buildHelpCardText() {

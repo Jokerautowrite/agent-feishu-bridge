@@ -185,12 +185,48 @@ class SessionStore {
       ...getThreadMap(current),
       [normalizedWorkspaceRoot]: threadId,
     };
+    const recentThreadIds = [...new Set([
+      normalizeValue(threadId),
+      ...this.getRecentThreadIdsForWorkspace(bindingKey, normalizedWorkspaceRoot),
+    ].filter(Boolean))].slice(0, 3);
 
     return this.updateBinding(bindingKey, {
       ...current,
       ...extra,
       activeWorkspaceRoot: normalizedWorkspaceRoot,
       threadIdByWorkspaceRoot,
+      recentThreadIdsByWorkspaceRoot: {
+        ...(current.recentThreadIdsByWorkspaceRoot || {}),
+        [normalizedWorkspaceRoot]: recentThreadIds,
+      },
+    });
+  }
+
+  getRecentThreadIdsForWorkspace(bindingKey, workspaceRoot) {
+    const root = normalizeValue(workspaceRoot);
+    const binding = this.getBinding(bindingKey);
+    const saved = binding?.recentThreadIdsByWorkspaceRoot?.[root];
+    return [...new Set([
+      this.getThreadIdForWorkspace(bindingKey, root),
+      ...(Array.isArray(saved) ? saved : []),
+    ].map(normalizeValue).filter(Boolean))].slice(0, 3);
+  }
+
+  rememberWorkspaceThreads(bindingKey, workspaceRoot, threadIds) {
+    const root = normalizeValue(workspaceRoot);
+    if (!root) return;
+    const current = this.getBinding(bindingKey) || {};
+    const recent = [...new Set([
+      ...this.getRecentThreadIdsForWorkspace(bindingKey, root),
+      ...threadIds.map(normalizeValue).filter(Boolean),
+    ])].slice(0, 3);
+    if (JSON.stringify(current.recentThreadIdsByWorkspaceRoot?.[root]) === JSON.stringify(recent)) return;
+    return this.updateBinding(bindingKey, {
+      ...current,
+      recentThreadIdsByWorkspaceRoot: {
+        ...(current.recentThreadIdsByWorkspaceRoot || {}),
+        [root]: recent,
+      },
     });
   }
 
@@ -334,6 +370,8 @@ class SessionStore {
 
     delete threadIdByWorkspaceRoot[normalizedWorkspaceRoot];
     delete codexParamsByWorkspaceRoot[normalizedWorkspaceRoot];
+    const recentThreadIdsByWorkspaceRoot = { ...(current.recentThreadIdsByWorkspaceRoot || {}) };
+    delete recentThreadIdsByWorkspaceRoot[normalizedWorkspaceRoot];
 
     const nextActiveWorkspaceRoot = activeWorkspaceRoot === normalizedWorkspaceRoot
       ? (Object.keys(threadIdByWorkspaceRoot).sort((left, right) => left.localeCompare(right))[0] || "")
@@ -344,6 +382,7 @@ class SessionStore {
       activeWorkspaceRoot: nextActiveWorkspaceRoot,
       codexParamsByWorkspaceRoot,
       threadIdByWorkspaceRoot,
+      recentThreadIdsByWorkspaceRoot,
     });
   }
 

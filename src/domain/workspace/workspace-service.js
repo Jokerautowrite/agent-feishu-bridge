@@ -292,6 +292,7 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
     workspaceRoot,
     normalized,
     autoSelectThread: true,
+    refreshThreads: Boolean(runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot)),
   });
   const currentThread = threads.find((thread) => thread.id === threadId) || null;
   const recentThreads = currentThread
@@ -324,6 +325,7 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
       noticeText,
       backend: process.env.AGENT_BRIDGE_BACKEND || "",
       quickCommandOptions,
+      threadKey: normalized.threadKey !== normalized.messageId ? normalized.threadKey : "",
     }),
   });
 }
@@ -687,6 +689,7 @@ async function showThreadPicker(runtime, normalized, { replyToMessageId } = {}) 
       workspaceRoot,
       threads,
       currentThreadId,
+      threadKey: normalized.threadKey !== normalized.messageId ? normalized.threadKey : "",
     }),
   });
 }

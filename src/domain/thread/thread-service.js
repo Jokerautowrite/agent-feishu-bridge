@@ -16,23 +16,45 @@ const THREAD_SOURCE_KINDS = new Set([
   "unknown",
 ]);
 
+function queueWorkspaceThreadOperation(runtime, bindingKey, workspaceRoot, task) {
+  const queues = runtime.workspaceThreadOperations ||= new Map();
+  const key = `${bindingKey}\n${workspaceRoot}`;
+  const previous = queues.get(key) || Promise.resolve();
+  const operation = previous.then(task);
+  const settled = operation.catch(() => undefined).finally(() => {
+    if (queues.get(key) === settled) queues.delete(key);
+  });
+  queues.set(key, settled);
+  return operation;
+}
+
+function getSavedWorkspaceThreads(runtime, bindingKey, workspaceRoot) {
+  const ids = runtime.sessionStore.getRecentThreadIdsForWorkspace?.(bindingKey, workspaceRoot)
+    || [runtime.sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot)].filter(Boolean);
+  return ids.map((id) => ({ id, cwd: workspaceRoot }));
+}
+
 async function resolveWorkspaceThreadState(runtime, {
   bindingKey,
   workspaceRoot,
   normalized,
   autoSelectThread = true,
+  refreshThreads = false,
 }) {
+  const threads = refreshThreads
+    ? await refreshWorkspaceThreads(runtime, bindingKey, workspaceRoot, normalized)
+    : getSavedWorkspaceThreads(runtime, bindingKey, workspaceRoot);
   const selectedThreadId = runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot);
   if (selectedThreadId) {
     runtime.setThreadBindingKey(selectedThreadId, bindingKey);
     runtime.setThreadWorkspaceRoot(selectedThreadId, workspaceRoot);
-    return { threads: [], threadId: selectedThreadId, selectedThreadId };
+    return { threads, threadId: selectedThreadId, selectedThreadId };
   }
 
   // Avoid thread/list on first use. Some Windows app-server builds terminate
   // while scanning a large global history; a fresh binding should instead
   // create a fresh workspace thread on the first ordinary message.
-  return { threads: [], threadId: "", selectedThreadId: "" };
+  return { threads, threadId: "", selectedThreadId: "" };
 }
 
 async function ensureThreadAndSendMessage(runtime, { bindingKey, workspaceRoot, normalized, threadId }) {
@@ -175,11 +197,9 @@ async function handleNewCommand(runtime, normalized) {
   }
 
   try {
-    const createdThreadId = await createWorkspaceThread(runtime, {
-      bindingKey,
-      workspaceRoot,
-      normalized,
-    });
+    const createdThreadId = await queueWorkspaceThreadOperation(runtime, bindingKey, workspaceRoot, () => (
+      createWorkspaceThread(runtime, { bindingKey, workspaceRoot, normalized })
+    ));
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
@@ -210,18 +230,21 @@ async function handleSwitchCommand(runtime, normalized) {
 }
 
 async function refreshWorkspaceThreads(runtime, bindingKey, workspaceRoot, normalized) {
+  let threads = [];
   try {
-    const threads = await listCodexThreadsForWorkspace(runtime, workspaceRoot);
-    const currentThreadId = runtime.sessionStore.getThreadIdForWorkspace(bindingKey, workspaceRoot);
-    const shouldKeepCurrentThread = currentThreadId && runtime.resumedThreadIds.has(currentThreadId);
-    if (currentThreadId && !shouldKeepCurrentThread && !threads.some((thread) => thread.id === currentThreadId)) {
-      runtime.sessionStore.clearThreadIdForWorkspace(bindingKey, workspaceRoot);
-    }
-    return threads;
+    threads = await listCodexThreadsForWorkspace(runtime, workspaceRoot);
   } catch (error) {
     console.warn(`[codex-im] thread/list failed for workspace=${workspaceRoot}: ${error.message}`);
-    return [];
   }
+  // Listing can lag a new session or fail; neither invalidates a saved window.
+  runtime.sessionStore.rememberWorkspaceThreads?.(bindingKey, workspaceRoot, threads.map((thread) => thread.id));
+  const saved = getSavedWorkspaceThreads(runtime, bindingKey, workspaceRoot);
+  const remote = new Map(threads.map((thread) => [thread.id, thread]));
+  const ids = new Set(saved.map((thread) => thread.id));
+  return [
+    ...saved.map((thread) => remote.get(thread.id) || thread),
+    ...threads.filter((thread) => !ids.has(thread.id)),
+  ];
 }
 
 async function listCodexThreadsForWorkspace(runtime, workspaceRoot) {
@@ -288,39 +311,45 @@ async function switchThreadById(runtime, normalized, threadId, { replyToMessageI
     return;
   }
 
-  const currentThreadId = runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot);
-  if (currentThreadId && currentThreadId === threadId) {
-    await runtime.sendInfoCardMessage({
-      chatId: normalized.chatId,
-      replyToMessageId: replyTarget,
-      text: "已经是当前线程，无需切换。",
-    });
-    return;
-  }
+  await queueWorkspaceThreadOperation(runtime, bindingKey, workspaceRoot, async () => {
+    const currentThreadId = runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot);
+    if (currentThreadId && currentThreadId === threadId) {
+      await runtime.sendInfoCardMessage({
+        chatId: normalized.chatId,
+        replyToMessageId: replyTarget,
+        text: "已经是当前线程，无需切换。",
+      });
+      return;
+    }
 
-  const availableThreads = await refreshWorkspaceThreads(runtime, bindingKey, workspaceRoot, normalized);
-  const selectedThread = availableThreads.find((thread) => thread.id === threadId) || null;
-  if (!selectedThread) {
-    await runtime.sendInfoCardMessage({
-      chatId: normalized.chatId,
-      replyToMessageId: replyTarget,
-      text: "指定线程当前不可用，请刷新后重试。",
-    });
-    return;
-  }
+    const savedThreads = getSavedWorkspaceThreads(runtime, bindingKey, workspaceRoot);
+    const availableThreads = savedThreads.some((thread) => thread.id === threadId)
+      ? savedThreads
+      : await refreshWorkspaceThreads(runtime, bindingKey, workspaceRoot, normalized);
+    const selectedThread = availableThreads.find((thread) => thread.id === threadId) || null;
+    if (!selectedThread) {
+      await runtime.sendInfoCardMessage({
+        chatId: normalized.chatId,
+        replyToMessageId: replyTarget,
+        text: "指定线程当前不可用，请刷新后重试。",
+      });
+      return;
+    }
 
-  const resolvedWorkspaceRoot = selectedThread.cwd || workspaceRoot;
-  runtime.sessionStore.setActiveWorkspaceRoot(bindingKey, resolvedWorkspaceRoot);
-  runtime.sessionStore.setThreadIdForWorkspace(
-    bindingKey,
-    resolvedWorkspaceRoot,
-    threadId,
-    codexMessageUtils.buildBindingMetadata(normalized)
-  );
-  runtime.setThreadBindingKey(threadId, bindingKey);
-  runtime.setThreadWorkspaceRoot(threadId, resolvedWorkspaceRoot);
-  runtime.resumedThreadIds.delete(threadId);
-  await ensureThreadResumed(runtime, threadId);
+    const resolvedWorkspaceRoot = selectedThread.cwd || workspaceRoot;
+    await ensureThreadResumed(runtime, threadId);
+    runtime.sessionStore.setThreadIdForWorkspace(
+      bindingKey,
+      resolvedWorkspaceRoot,
+      threadId,
+      codexMessageUtils.buildBindingMetadata(normalized)
+    );
+    runtime.setThreadBindingKey(threadId, bindingKey);
+    runtime.setThreadWorkspaceRoot(threadId, resolvedWorkspaceRoot);
+    if (!runtime.activeTurnIdByThreadId.has(threadId)) {
+      runtime.setPendingThreadContext(threadId, normalized);
+    }
+  });
   await runtime.showStatusPanel(normalized, { replyToMessageId: replyTarget });
 }
 
@@ -399,6 +428,7 @@ function buildGroupSenderIdentity(senderName, senderId) {
 }
 
 module.exports = {
+  queueWorkspaceThreadOperation,
   createWorkspaceThread,
   describeWorkspaceStatus,
   ensureThreadAndSendMessage,

@@ -4,6 +4,7 @@ const attachmentRuntime = require("../domain/attachments/attachment-service");
 const groupService = require("../domain/group/group-service");
 const groupSecurity = require("../domain/group/group-security");
 const { formatFailureText } = require("../shared/error-text");
+const { queueWorkspaceThreadOperation } = require("../domain/thread/thread-service");
 
 async function onFeishuTextEvent(runtime, event) {
   let normalized = messageNormalizers.normalizeFeishuTextEvent(event, runtime.config);
@@ -110,6 +111,12 @@ async function onFeishuTextEvent(runtime, event) {
     return;
   }
   const { bindingKey, workspaceRoot } = workspaceContext;
+  return queueWorkspaceThreadOperation(runtime, bindingKey, workspaceRoot, () => (
+    sendWorkspaceMessage(runtime, normalized, workspaceContext, hasAttachmentPayload)
+  ));
+}
+
+async function sendWorkspaceMessage(runtime, normalized, { bindingKey, workspaceRoot }, hasAttachmentPayload) {
   const isImageMessage = normalized.command === "image_message"
     || (Array.isArray(normalized.attachments)
       && normalized.attachments.some((attachment) => attachment?.kind === "image"));

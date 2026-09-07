@@ -152,6 +152,7 @@ async function testThreadScopedBindingDoesNotAutoSelectOldThread() {
     bindingKey: "thread-key",
     workspaceRoot: "/workspace",
     normalized: {},
+    refreshThreads: true,
   });
   assert.equal(result.threadId, "");
   assert.equal(result.threads.length, 1);

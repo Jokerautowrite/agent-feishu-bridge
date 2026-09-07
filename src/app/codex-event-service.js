@@ -14,12 +14,8 @@ const TURN_PROGRESS_METHODS = new Set([
 
 async function handleStopCommand(runtime, normalized) {
   const { bindingKey, workspaceRoot } = runtime.getBindingContext(normalized);
-  const explicitThreadId = String(normalized.threadId || "").trim();
-  const threadId = explicitThreadId
-    || (workspaceRoot ? runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot) : null);
-  const explicitTurnId = String(normalized.turnId || normalized.requestId || "").trim();
-  const turnId = explicitTurnId
-    || (threadId ? runtime.activeTurnIdByThreadId.get(threadId) || null : null);
+  const threadId = workspaceRoot ? runtime.resolveThreadIdForBinding(bindingKey, workspaceRoot) : null;
+  const turnId = threadId ? runtime.activeTurnIdByThreadId.get(threadId) || null : null;
 
   if (!threadId) {
     await runtime.sendInfoCardMessage({
@@ -74,7 +70,7 @@ function handleCodexMessage(runtime, message) {
   });
 
   codexMessageUtils.trackAssistantDeltaReceipt(runtime.assistantDeltaSeenByRunKey, message);
-  const tokenUsageChanged = trackLatestTokenUsage(runtime, message);
+  trackLatestTokenUsage(runtime, message);
   const toolUsageChanged = trackLatestToolUsage(runtime, message);
   const reasoningTraceChanged = trackLatestReasoningSummary(runtime, message);
   const progressStepText = extractProgressStepText(message);
@@ -86,7 +82,7 @@ function handleCodexMessage(runtime, message) {
   trackRunningTurnStartedAt(runtime, message);
   codexMessageUtils.trackPendingApproval(runtime.pendingApprovalByThreadId, message);
   runtime.pruneRuntimeMapSizes();
-  if (tokenUsageChanged || toolUsageChanged || reasoningTraceChanged) {
+  if (toolUsageChanged || reasoningTraceChanged) {
     refreshStreamingReplyCardForProgress(runtime, message);
   }
   if (!outbound) {
@@ -185,20 +181,15 @@ function resolveTerminalErrorRunKey(runtime, message) {
 
 function trackLatestTokenUsage(runtime, message) {
   if (message?.method !== "thread/tokenUsage/updated") {
-    return false;
+    return;
   }
   const params = message?.params || {};
   const threadId = params?.threadId || "";
   const usage = params?.tokenUsage || {};
   if (!threadId || !usage || typeof usage !== "object") {
-    return false;
-  }
-  const previousUsage = runtime.latestTokenUsageByThreadId.get(threadId);
-  if (JSON.stringify(previousUsage) === JSON.stringify(usage)) {
-    return false;
+    return;
   }
   runtime.latestTokenUsageByThreadId.set(threadId, usage);
-  return true;
 }
 
 function trackRunningTurnStartedAt(runtime, message) {
@@ -275,7 +266,6 @@ function trackLatestReasoningSummary(runtime, message) {
   const itemType = String(item?.type || "").trim().toLowerCase();
   const isReasoningDelta = method === "item/reasoning/delta"
     || method === "item/reasoningSummary/delta"
-    || method === "item/reasoning/summaryTextDelta"
     || method === "item/reasoning/summaryPartAdded"
     || method === "item/reasoningSummary/summaryPartAdded";
 
@@ -291,9 +281,9 @@ function trackLatestReasoningSummary(runtime, message) {
       || ""
   ).trim();
   const itemId = String(item?.id || params?.itemId || "reasoning").trim();
-  const appendDelta = method === "item/reasoning/summaryTextDelta";
-  const rawSummary = params?.delta || params?.summary || item?.summary || item?.text;
-  const summary = appendDelta ? String(rawSummary || "") : normalizeReasoningSummaryText(rawSummary);
+  const summary = normalizeReasoningSummaryText(
+    params?.delta || params?.summary || item?.summary || item?.text
+  );
   if (!threadId || !turnId || !itemId || !summary) {
     return false;
   }
@@ -303,7 +293,6 @@ function trackLatestReasoningSummary(runtime, message) {
     turnId,
     itemId,
     summary,
-    appendDelta,
   });
 }
 
@@ -330,15 +319,13 @@ function recordToolTrace(runtime, { threadId, turnId, itemId, summary }) {
   return isNewTool || traceChanged;
 }
 
-function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary, appendDelta = false }) {
+function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary }) {
   if (!(runtime.reasoningTraceByRunKey instanceof Map)) {
     runtime.reasoningTraceByRunKey = new Map();
   }
   const runKey = `${String(threadId || "")}:${String(turnId || "")}`;
   const normalizedItemId = String(itemId || "").trim();
-  const normalizedSummary = appendDelta
-    ? String(summary || "").replace(/\u0000/g, "").replace(/\r\n/g, "\n").slice(0, 2400)
-    : normalizeReasoningSummaryText(summary);
+  const normalizedSummary = normalizeReasoningSummaryText(summary);
   if (!runKey || !normalizedItemId || !normalizedSummary) {
     return false;
   }
@@ -346,9 +333,7 @@ function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary, appe
   const trace = runtime.reasoningTraceByRunKey.get(runKey) || [];
   const index = trace.findIndex((entry) => entry?.itemId === normalizedItemId);
   const previous = index >= 0 ? String(trace[index]?.summary || "") : "";
-  const merged = appendDelta
-    ? (previous + normalizedSummary).slice(0, 2400)
-    : mergeReasoningSummary(previous, normalizedSummary);
+  const merged = mergeReasoningSummary(previous, normalizedSummary);
   if (merged === previous) {
     return false;
   }
@@ -574,16 +559,6 @@ function truncateInline(text, limit = 80) {
 }
 
 async function deliverToFeishu(runtime, event) {
-  const terminalState = event.type === "im.run_state" ? String(event.payload?.state || "") : "";
-  const shouldTraceDelivery = ["completed", "failed", "cancelled"].includes(terminalState);
-  const inboundMessageId = shouldTraceDelivery
-    ? runtime.pendingChatContextByThreadId.get(event.payload?.threadId)?.messageId || ""
-    : "";
-  if (shouldTraceDelivery) {
-    console.log(
-      `[codex-im] delivery stage=send_started state=${terminalState} thread=${shortLogId(event.payload?.threadId)} inbound=${shortLogId(inboundMessageId)}`
-    );
-  }
   if (event.type === "im.agent_reply") {
     const attachmentResult = await attachmentDirectives.handleOutboundAttachmentDirectives(runtime, {
       threadId: event.payload.threadId,
@@ -638,17 +613,11 @@ async function deliverToFeishu(runtime, event) {
           state: "completed",
         });
         let providerReceipt = String(delivery?.providerReceipt || "").trim();
-        console.log(
-          `[codex-im] delivery stage=send_succeeded state=completed thread=${shortLogId(event.payload.threadId)} inbound=${shortLogId(inboundMessageId)} receipt=${providerReceipt ? "present" : "missing"}`
-        );
         if (providerReceipt) { await runtime.deliveryReceipts.recordOutboundCompletion({
           inboundMessageId,
           providerReceipt,
         }); } else { console.warn("[codex-im] final: no provider receipt, not dropping"); await runtime.deliveryReceipts.recordOutboundFailure({ inboundMessageId, failureClass: "receipt-unknown" }); }
       } catch (error) {
-        console.error(
-          `[codex-im] delivery stage=send_failed state=completed thread=${shortLogId(event.payload.threadId)} inbound=${shortLogId(inboundMessageId)} error=${error.message}`
-        );
         await runtime.deliveryReceipts.recordOutboundFailure({
           inboundMessageId,
           failureClass: error?.code || error?.name || "send",
@@ -669,16 +638,10 @@ async function deliverToFeishu(runtime, event) {
         text: event.payload.text || "执行失败",
         state: "failed",
       });
-      console.log(
-        `[codex-im] delivery stage=send_succeeded state=failed thread=${shortLogId(event.payload.threadId)} inbound=${shortLogId(inboundMessageId)}`
-      );
     } else if (event.payload.state === "cancelled") {
       const inboundMessageId = runtime.pendingChatContextByThreadId
         .get(event.payload.threadId)?.messageId || "";
       await runtime.deliveryReceipts.recordCancelled({ inboundMessageId });
-      console.log(
-        `[codex-im] delivery stage=send_succeeded state=cancelled thread=${shortLogId(event.payload.threadId)} inbound=${shortLogId(inboundMessageId)}`
-      );
     }
     return;
   }
@@ -703,11 +666,6 @@ async function deliverToFeishu(runtime, event) {
       reason: "request",
     });
   }
-}
-
-function shortLogId(value) {
-  const normalized = String(value || "").trim();
-  return normalized ? normalized.slice(0, 16) : "-";
 }
 
 function isTerminalTurnMessage(message) {

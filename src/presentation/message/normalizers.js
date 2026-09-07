@@ -209,7 +209,7 @@ function normalizeCardActionContext(data, config) {
     provider: "feishu",
     workspaceId: config.defaultWorkspaceId,
     chatId,
-    threadKey: "",
+    threadKey: normalizeIdentifier(data?.action?.value?.threadKey),
     senderId,
     messageId,
     text: "",

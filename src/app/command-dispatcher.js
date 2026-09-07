@@ -38,6 +38,7 @@ const PANEL_CARD_ACTIONS = {
   },
   new_thread: {
     feedback: PANEL_ACTION_CONFIG.new_thread.feedback,
+    startImmediately: true,
     run: (runtime, normalized) => runtime.handleNewCommand(normalized),
   },
   show_messages: {
@@ -85,13 +86,7 @@ const FORM_CARD_ACTIONS = {
 const THREAD_CARD_ACTIONS = {
   switch: {
     feedback: THREAD_ACTION_CONFIG.switch.feedback,
-    validate: (runtime, normalized, action) => {
-      const { threadId: currentThreadId } = runtime.getCurrentThreadContext(normalized);
-      if (currentThreadId && currentThreadId === action.threadId) {
-        return { text: THREAD_ACTION_CONFIG.switch.alreadyCurrentText, kind: "info" };
-      }
-      return null;
-    },
+    startImmediately: true,
     run: (runtime, normalized, action) => (
       runtime.switchThreadById(normalized, action.threadId, { replyToMessageId: normalized.messageId })
     ),
@@ -191,7 +186,8 @@ function executeMappedCardAction(runtime, normalized, action, actionMap) {
   return runtime.queueCardActionWithFeedback(
     normalized,
     handler.feedback,
-    () => handler.run(runtime, normalized, action)
+    () => handler.run(runtime, normalized, action),
+    { startImmediately: handler.startImmediately === true }
   );
 }
 

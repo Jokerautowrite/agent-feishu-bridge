@@ -26,6 +26,7 @@ const cardActionLastSeen = new Map();
 function isDuplicateCardAction(action, normalized) {
   const key = [
     normalized?.chatId || "",
+    normalized?.threadKey || "",
     action?.kind || "",
     action?.action || "",
     action?.selectedValue
@@ -386,9 +387,15 @@ function isAllowedCardOperator(runtime, operatorSenderIds, senderAllowlist, chat
   return operatorSenderIds.some((id) => id && senderAllowlist.includes(id));
 }
 
-function queueCardActionWithFeedback(runtime, normalized, feedbackText, task) {
+function queueCardActionWithFeedback(runtime, normalized, feedbackText, task, { startImmediately = false } = {}) {
   runCardActionTask(runtime, (async () => {
-    await sendCardActionFeedbackByContext(runtime, normalized, feedbackText, "progress");
+    const feedback = sendCardActionFeedbackByContext(runtime, normalized, feedbackText, "progress");
+    if (startImmediately) {
+      // Register window operations before waiting on the feedback network call.
+      runCardActionTask(runtime, feedback);
+    } else {
+      await feedback;
+    }
     try {
       await task();
     } catch (error) {
