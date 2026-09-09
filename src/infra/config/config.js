@@ -90,9 +90,12 @@ function readConfig() {
     ),
     codexRpcTimeoutMs: readPositiveIntEnv(readCompatEnv("CODEX_IM_CODEX_RPC_TIMEOUT_MS"), 45000),
     // This is an RPC acknowledgement deadline, not a total task duration.
-    codexTurnStartTimeoutMs: Math.min(
-      readPositiveIntEnv(readCompatEnv("CODEX_IM_CODEX_TURN_START_TIMEOUT_MS"), 60000),
-      300000
+    // 创（chuang）的 turn/start 是同步跑到整轮完成才返回，长任务可达数十分钟/小时，
+    // 因此不设硬性 5 分钟上限；由 env 显式配置（默认 60s，创已设 48h），
+    // 卡死兜底交给 stale-turn 看门狗。
+    codexTurnStartTimeoutMs: readPositiveIntEnv(
+      readCompatEnv("CODEX_IM_CODEX_TURN_START_TIMEOUT_MS"),
+      60000
     ),
     staleTurnTimeoutMs: readNonNegativeIntEnv(
       readCompatEnv("CODEX_IM_STALE_TURN_TIMEOUT_MS"),

@@ -10,6 +10,10 @@ const TURN_PROGRESS_METHODS = new Set([
   "item/reasoning/summaryTextDelta", "item/reasoning/summaryPartAdded",
   "item/reasoningSummary/delta", "item/reasoningSummary/summaryPartAdded",
   "item/mcpToolCall/progress", "turn/plan/updated", "turn/diff/updated",
+  "thread/tokenUsage/updated",
+  // 创（chuang）app-server 用 turn/progress 推送步骤进度；同样是活跃信号，
+  // 必须纳入续命，否则长任务无其他事件时会 15 分钟被 stale 看门狗误杀。
+  "turn/progress",
 ]);
 
 async function handleStopCommand(runtime, normalized) {
@@ -70,7 +74,7 @@ function handleCodexMessage(runtime, message) {
   });
 
   codexMessageUtils.trackAssistantDeltaReceipt(runtime.assistantDeltaSeenByRunKey, message);
-  trackLatestTokenUsage(runtime, message);
+  const tokenUsageChanged = trackLatestTokenUsage(runtime, message);
   const toolUsageChanged = trackLatestToolUsage(runtime, message);
   const reasoningTraceChanged = trackLatestReasoningSummary(runtime, message);
   const progressStepText = extractProgressStepText(message);
@@ -82,7 +86,7 @@ function handleCodexMessage(runtime, message) {
   trackRunningTurnStartedAt(runtime, message);
   codexMessageUtils.trackPendingApproval(runtime.pendingApprovalByThreadId, message);
   runtime.pruneRuntimeMapSizes();
-  if (toolUsageChanged || reasoningTraceChanged) {
+  if (tokenUsageChanged || toolUsageChanged || reasoningTraceChanged) {
     refreshStreamingReplyCardForProgress(runtime, message);
   }
   if (!outbound) {
@@ -181,15 +185,18 @@ function resolveTerminalErrorRunKey(runtime, message) {
 
 function trackLatestTokenUsage(runtime, message) {
   if (message?.method !== "thread/tokenUsage/updated") {
-    return;
+    return false;
   }
   const params = message?.params || {};
   const threadId = params?.threadId || "";
   const usage = params?.tokenUsage || {};
   if (!threadId || !usage || typeof usage !== "object") {
-    return;
+    return false;
   }
+  const previous = runtime.latestTokenUsageByThreadId.get(threadId);
+  const changed = JSON.stringify(previous) !== JSON.stringify(usage);
   runtime.latestTokenUsageByThreadId.set(threadId, usage);
+  return changed;
 }
 
 function trackRunningTurnStartedAt(runtime, message) {
@@ -265,9 +272,11 @@ function trackLatestReasoningSummary(runtime, message) {
   const item = params?.item || {};
   const itemType = String(item?.type || "").trim().toLowerCase();
   const isReasoningDelta = method === "item/reasoning/delta"
-    || method === "item/reasoningSummary/delta"
+    || method === "item/reasoning/summaryTextDelta"
     || method === "item/reasoning/summaryPartAdded"
+    || method === "item/reasoningSummary/delta"
     || method === "item/reasoningSummary/summaryPartAdded";
+  const isReasoningTextDelta = method === "item/reasoning/summaryTextDelta";
 
   if (!isReasoningDelta && itemType !== "reasoning") {
     return false;
@@ -281,9 +290,9 @@ function trackLatestReasoningSummary(runtime, message) {
       || ""
   ).trim();
   const itemId = String(item?.id || params?.itemId || "reasoning").trim();
-  const summary = normalizeReasoningSummaryText(
-    params?.delta || params?.summary || item?.summary || item?.text
-  );
+  const summary = isReasoningTextDelta
+    ? String(params?.delta || "")
+    : normalizeReasoningSummaryText(params?.delta || params?.summary || item?.summary || item?.text);
   if (!threadId || !turnId || !itemId || !summary) {
     return false;
   }
@@ -293,6 +302,7 @@ function trackLatestReasoningSummary(runtime, message) {
     turnId,
     itemId,
     summary,
+    appendDelta: isReasoningTextDelta,
   });
 }
 
@@ -319,7 +329,7 @@ function recordToolTrace(runtime, { threadId, turnId, itemId, summary }) {
   return isNewTool || traceChanged;
 }
 
-function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary }) {
+function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary, appendDelta = false }) {
   if (!(runtime.reasoningTraceByRunKey instanceof Map)) {
     runtime.reasoningTraceByRunKey = new Map();
   }
@@ -333,7 +343,9 @@ function recordReasoningTrace(runtime, { threadId, turnId, itemId, summary }) {
   const trace = runtime.reasoningTraceByRunKey.get(runKey) || [];
   const index = trace.findIndex((entry) => entry?.itemId === normalizedItemId);
   const previous = index >= 0 ? String(trace[index]?.summary || "") : "";
-  const merged = mergeReasoningSummary(previous, normalizedSummary);
+  const merged = appendDelta
+    ? normalizeReasoningSummaryText(`${previous}${previous && summary ? " " : ""}${summary}`)
+    : mergeReasoningSummary(previous, normalizedSummary);
   if (merged === previous) {
     return false;
   }
