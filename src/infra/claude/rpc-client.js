@@ -23,7 +23,7 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const DEFAULT_CWD = process.env.CLAUDE_BRIDGE_CWD || os.homedir();
 const SUPPORTED_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const STATIC_MODEL_CATALOG = [
-  { id: "claude-fable-5", displayName: "Fable 5" },
+  { id: "claude-fable-5", displayName: "DeepSeek Flash (Fable档)" },
   { id: "claude-opus-4-8", displayName: "Opus 4.8" },
   { id: "claude-sonnet-5", displayName: "Sonnet 5" },
   { id: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" },
