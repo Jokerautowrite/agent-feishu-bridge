@@ -37,9 +37,9 @@ async function main() {
   const interrupts = [];
   const messages = [];
   const runtime = {
-    getBindingContext: () => ({ bindingKey: "binding", workspaceRoot: "" }),
-    resolveThreadIdForBinding: () => null,
-    activeTurnIdByThreadId: new Map(),
+    getBindingContext: () => ({ bindingKey: "binding", workspaceRoot: "/fixture/project" }),
+    resolveThreadIdForBinding: () => "thread-card",
+    activeTurnIdByThreadId: new Map([["thread-card", "turn-card"]]),
     codex: {
       sendRequest: async (method, params) => interrupts.push({ method, params }),
     },

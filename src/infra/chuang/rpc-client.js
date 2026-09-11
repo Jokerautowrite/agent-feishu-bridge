@@ -34,6 +34,7 @@ class CodexRpcClient {
     logLevel = "normal",
     requestTimeoutMs = 45000,
     turnStartTimeoutMs = 150000,
+    onTransportFailure = null,
   }) {
     this.endpoint = endpoint;
     this.env = env;
@@ -62,6 +63,11 @@ class CodexRpcClient {
     this.reconnectLoopRunning = false;
     this.reconnectWaiters = new Set(); // 断线期间等待重连的 sendRequest 回调
     this.isManualRestarting = false;
+    // ── transport 失败通知 ────────────────────────
+    // 与 codex 后端对齐：socket 断开时通知 runtime，把在途 turn 收口成
+    // turn/failed，避免飞书端线程永远停在"还有任务在运行"。
+    this.onTransportFailure = typeof onTransportFailure === "function" ? onTransportFailure : null;
+    this.transportFailureNotified = false;
   }
 
   async connect() {
@@ -82,6 +88,7 @@ class CodexRpcClient {
         opened = true;
         this.isReady = true;
         this.reconnectAttempts = 0;
+        this.transportFailureNotified = false;
         console.log(`[codex-im] connected to Chuang app-server socket ${this.socketPath}`);
         this.scheduleReconnectIfNeeded(); // 清除残留重连定时器（若有）
         resolve();
@@ -97,6 +104,7 @@ class CodexRpcClient {
           return;
         }
         this.rejectAllPending(error);
+        this.notifyTransportFailure(error, "socket-error");
         this.scheduleReconnect();
       });
       socket.on("data", (chunk) => {
@@ -113,10 +121,28 @@ class CodexRpcClient {
       socket.on("close", () => {
         this.isReady = false;
         this.socket = null;
-        this.rejectAllPending(new Error("Chuang app-server socket closed"));
+        const closeError = new Error("Chuang app-server socket closed");
+        this.rejectAllPending(closeError);
+        this.notifyTransportFailure(closeError, "socket-close");
         this.scheduleReconnect();
       });
     });
+  }
+
+  /**
+   * 通知 runtime：与 app-server 的 transport 已失效。
+   * 只在"曾经连上过又断开"时触发一次，重连成功后重新武装。
+   */
+  notifyTransportFailure(error, source) {
+    if (this.transportFailureNotified || !this.onTransportFailure) {
+      return;
+    }
+    this.transportFailureNotified = true;
+    try {
+      this.onTransportFailure({ error, source });
+    } catch (callbackError) {
+      console.error(`[codex-im] transport failure callback failed: ${callbackError.message}`);
+    }
   }
 
   /**

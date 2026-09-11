@@ -93,12 +93,13 @@ function testActivityTracking() {
     "item/started", "item/completed", "item/agentMessage/delta", "item/plan/delta",
     "item/commandExecution/outputDelta", "item/reasoning/summaryTextDelta",
     "item/mcpToolCall/progress", "turn/plan/updated", "turn/diff/updated",
+    "thread/tokenUsage/updated", "turn/progress",
   ]) {
     runtime.activeTurnLastActivityAtByThreadId.set("tracked", 1);
     trackRunningTurnStartedAt(runtime, { method, params: { ...params, delta: "progress" } });
     assert.ok(runtime.activeTurnLastActivityAtByThreadId.get("tracked") > 1, method);
   }
-  for (const method of ["thread/status/changed", "thread/tokenUsage/updated", "unrelated/heartbeat"]) {
+  for (const method of ["thread/status/changed", "unrelated/heartbeat"]) {
     runtime.activeTurnLastActivityAtByThreadId.set("tracked", 1);
     trackRunningTurnStartedAt(runtime, { method, params });
     assert.equal(runtime.activeTurnLastActivityAtByThreadId.get("tracked"), 1, method);

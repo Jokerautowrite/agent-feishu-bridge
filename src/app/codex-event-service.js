@@ -52,6 +52,18 @@ async function handleStopCommand(runtime, normalized) {
 }
 
 function handleCodexMessage(runtime, message) {
+  // 迟到 / 串轮的旧 turn 终态（完成/失败/取消/流断开）：
+  // 一旦与本窗口当前 run 的 turn 不一致，就整条丢弃——既不投递飞书，
+  // 也不清理运行态。否则旧终态会把新 turn 的 pendingChatContext、
+  // replyCard 等一并清掉，新任务就"没有下文"了。
+  if (isStaleTerminalTurnMessage(runtime, message)) {
+    if (runtime.config?.logLevel === "verbose") {
+      console.log(
+        `[codex-im] ignored stale terminal ${message?.method} turn=${extractMessageTurnId(message)}`
+      );
+    }
+    return;
+  }
   if (runtime.config.logLevel === "verbose" && typeof message?.method === "string") {
     console.log(`[codex-im] codex event ${message.method}`);
   }
@@ -110,12 +122,20 @@ function handleCodexMessage(runtime, message) {
   }
 
   const shouldCleanupThreadState = isTerminalTurnMessage(message);
+  // 本轮终态回执对应的 turn id（可能来自 message 本身，也可能在上面从 active 表补全）。
+  const deliveredTurnId = String(outbound.payload.turnId || "");
   runtime.deliverToFeishu(outbound)
     .catch((error) => {
       console.error(`[codex-im] failed to deliver Feishu message: ${error.message}`);
     })
     .finally(() => {
       if (!shouldCleanupThreadState || !threadId) {
+        return;
+      }
+      // 迟到的旧 turn 终态（投递被 await/排队拖慢）不得清掉已经开始的下一轮：
+      // 否则新 turn 会被"提前收口"，飞书端表现为新任务没有下文。
+      const activeTurnId = runtime.activeTurnIdByThreadId.get(threadId) || "";
+      if (activeTurnId && deliveredTurnId && activeTurnId !== deliveredTurnId) {
         return;
       }
       forgetTerminalError(runtime, message);
@@ -680,8 +700,35 @@ async function deliverToFeishu(runtime, event) {
   }
 }
 
+function extractMessageTurnId(message) {
+  const params = message?.params || {};
+  const raw = params?.turnId || params?.turn?.id;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : "";
+}
+
+function isStaleTerminalTurnMessage(runtime, message) {
+  if (!isTerminalTurnMessage(message)) {
+    return false;
+  }
+  const params = message?.params || {};
+  const threadId = typeof params?.threadId === "string" ? params.threadId.trim() : "";
+  const eventTurnId = extractMessageTurnId(message);
+  if (!threadId || !eventTurnId) {
+    return false;
+  }
+  const runKey = runtime.currentRunKeyByThreadId?.get?.(threadId) || "";
+  const currentTurnId = runKey ? codexMessageUtils.extractTurnIdFromRunKey(runKey) : "";
+  const activeTurnId = runtime.activeTurnIdByThreadId?.get?.(threadId) || "";
+  const referenceTurnId = currentTurnId || activeTurnId;
+  if (!referenceTurnId || referenceTurnId === "pending") {
+    return false;
+  }
+  return referenceTurnId !== eventTurnId;
+}
+
 function isTerminalTurnMessage(message) {
   const method = typeof message?.method === "string" ? message.method : "";
+
   if (method === "turn/completed" || method === "turn/failed" || method === "turn/cancelled") {
     return true;
   }

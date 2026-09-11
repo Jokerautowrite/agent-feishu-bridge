@@ -12,7 +12,11 @@ try {
   assert.strictEqual(readConfig().codexTurnStartTimeoutMs, 60000);
   assert.strictEqual(readConfig().attachmentExportDir, "");
   process.env.AGENT_BRIDGE_CODEX_TURN_START_TIMEOUT_MS = "172800000";
-  assert.strictEqual(readConfig().codexTurnStartTimeoutMs, 300000, "ack timeout has a five-minute ceiling");
+  assert.strictEqual(
+    readConfig().codexTurnStartTimeoutMs,
+    172800000,
+    "ack timeout passes through without a hard ceiling (long chuang turns)",
+  );
   process.env.AGENT_BRIDGE_CODEX_TURN_START_TIMEOUT_MS = "120000";
   assert.strictEqual(readConfig().codexTurnStartTimeoutMs, 120000);
   process.env.AGENT_BRIDGE_ATTACHMENT_EXPORT_DIR = "deliverables";

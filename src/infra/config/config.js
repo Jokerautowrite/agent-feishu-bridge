@@ -81,7 +81,9 @@ function readConfig() {
     ),
     cardKitFailureCooldownMs: readNonNegativeIntEnv(
       readCompatEnv("CODEX_IM_CARDKIT_FAILURE_COOLDOWN_MS"),
-      5 * 60 * 1000
+      // 默认 10s（原 5 分钟）：CardKit 熔断期间只能走 legacy 卡片，
+      // 冷却太久会让长任务看起来"不更新"。
+      10 * 1000
     ),
     groupCardReasoningMode: readAllowedStringEnv(
       readCompatEnv("CODEX_IM_GROUP_CARD_REASONING_MODE"),

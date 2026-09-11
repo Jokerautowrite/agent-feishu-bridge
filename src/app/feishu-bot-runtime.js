@@ -342,11 +342,22 @@ class FeishuBotRuntime {
     this.sessionStore.setAvailableModelCatalog(models);
     const validatedDefaults = workspaceRuntime.validateDefaultCodexParamsConfig(this, models);
     if (!validatedDefaults.model) {
-      throw new Error(`Invalid AGENT_BRIDGE_DEFAULT_CODEX_MODEL: ${this.config.defaultCodexModel}`);
-    }
-    if (!validatedDefaults.effort) {
-      throw new Error(
-        `Invalid AGENT_BRIDGE_DEFAULT_CODEX_EFFORT: ${this.config.defaultCodexEffort} for model ${validatedDefaults.model}`
+      // 不再因 catalog 与默认模型短暂分叉而拒绝启动：这曾让桥连崩 9 次
+      // （backend 还在跑旧 config 时，model/list 里没有新默认模型）。
+      // 现在只告警并继续，配置项保持原值，等 daemon 重启后自动对齐。
+      const catalogFallback = models.find((item) => item?.isDefault)?.model
+        || models[0]?.model
+        || "";
+      console.warn(
+        `[codex-im] AGENT_BRIDGE_DEFAULT_CODEX_MODEL "${this.config.defaultCodexModel}" `
+        + `not found in backend catalog (${models.length} entries)`
+        + (catalogFallback ? `; backend default is "${catalogFallback}"` : "")
+        + "; keeping configured default and continuing (restart the backend if this persists)"
+      );
+    } else if (!validatedDefaults.effort) {
+      console.warn(
+        `[codex-im] AGENT_BRIDGE_DEFAULT_CODEX_EFFORT "${this.config.defaultCodexEffort}" `
+        + `is not supported by "${validatedDefaults.model}"; backend will use its own default`
       );
     }
     console.log(`[codex-im] model catalog refreshed at startup: ${models.length} entries`);
