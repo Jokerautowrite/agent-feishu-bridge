@@ -308,6 +308,18 @@ async function enrichGroupSenderIdentity(runtime, normalized) {
 }
 
 /**
+ * 取某个群聊配置的发送者白名单（未配置则返回 null，表示不限制）。
+ */
+function resolveGroupSenderAllowlist(config, chatId) {
+  const allowlists = config?.groupSenderAllowlists;
+  if (!allowlists || typeof allowlists !== "object" || !chatId) {
+    return null;
+  }
+  const senders = allowlists[chatId];
+  return Array.isArray(senders) && senders.length > 0 ? senders : null;
+}
+
+/**
  * 群聊 @过滤：群聊里只有两种情况会继续处理——
  * 1. 消息是命令（/ 开头），直接放行；
  * 2. 消息 @ 了机器人，去掉 @机器人 前缀后再放行。
@@ -315,6 +327,20 @@ async function enrichGroupSenderIdentity(runtime, normalized) {
  */
 async function applyGroupMentionPolicy(runtime, normalized) {
   const config = runtime.config || {};
+
+  // 群发送者白名单：配置了白名单的群聊，只处理名单内发送者的消息（含命令）。
+  const senderAllowlist = resolveGroupSenderAllowlist(config, normalized.chatId);
+  if (senderAllowlist) {
+    const senderId = String(normalized.senderId || "").trim();
+    if (!senderId || !senderAllowlist.includes(senderId)) {
+      console.log(
+        `[codex-im] group message ignored (sender not in group allowlist): `
+        + `chat=${normalized.chatId} sender=${senderId.slice(0, 12)}`
+      );
+      return null;
+    }
+  }
+
   if (config.groupMentionOnly === false) {
     return normalized;
   }

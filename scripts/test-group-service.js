@@ -135,6 +135,57 @@ assert.strictEqual(
   const exemptMsg = { chatType: "group", text: "免@群聊", command: "message", mentions: [], chatId: "oc_exempt", messageId: "om_exempt" };
   assert.strictEqual(await applyGroupMentionPolicy(exemptRuntime, exemptMsg), exemptMsg, "exempt chat allows all");
 
+  // per-chat sender allowlist → only listed senders may trigger, others silent
+  const senderRuntime = {
+    config: {
+      groupMentionOnly: true,
+      groupMentionExemptChats: [],
+      groupSenderAllowlists: { oc_sender_gate: ["ou_allowed"] },
+    },
+    resolvedBotOpenId: BOT_OPEN_ID,
+    sendInfoCardMessage: async () => {},
+  };
+  const allowedSender = {
+    chatType: "group",
+    text: "@小策 看看这个",
+    command: "message",
+    mentions: [mention({ openId: BOT_OPEN_ID })],
+    senderId: "ou_allowed",
+    chatId: "oc_sender_gate",
+    messageId: "om_sg1",
+  };
+  const allowedResult = await applyGroupMentionPolicy(senderRuntime, allowedSender);
+  assert.ok(allowedResult, "allowlisted sender + mention passes");
+  assert.strictEqual(allowedResult.text, "看看这个", "mention stripped for allowlisted sender");
+  const blockedSender = {
+    chatType: "group",
+    text: "@小策 看看这个",
+    command: "message",
+    mentions: [mention({ openId: BOT_OPEN_ID })],
+    senderId: "ou_blocked",
+    chatId: "oc_sender_gate",
+    messageId: "om_sg2",
+  };
+  assert.strictEqual(
+    await applyGroupMentionPolicy(senderRuntime, blockedSender),
+    null,
+    "non-allowlisted sender is silently ignored even when mentioning bot"
+  );
+  const allowedNoMention = {
+    chatType: "group",
+    text: "没@机器人",
+    command: "message",
+    mentions: [],
+    senderId: "ou_allowed",
+    chatId: "oc_sender_gate",
+    messageId: "om_sg3",
+  };
+  assert.strictEqual(
+    await applyGroupMentionPolicy(senderRuntime, allowedNoMention),
+    null,
+    "allowlisted sender still must mention the bot in mention-only groups"
+  );
+
   console.log("group-service tests OK");
 })().catch((error) => {
   console.error(error);

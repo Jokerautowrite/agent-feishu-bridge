@@ -45,6 +45,7 @@ function readConfig() {
     adminOpenIds: readListEnv(readCompatEnv("CODEX_IM_ADMIN_OPEN_IDS")),
     groupMentionOnly: readBooleanEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_ONLY"), true),
     groupMentionExemptChats: readListEnv(readCompatEnv("CODEX_IM_GROUP_MENTION_EXEMPT_CHATS")),
+    groupSenderAllowlists: readGroupSenderAllowlists(readEnv("CODEX_IM_GROUP_SENDER_ALLOWLIST")),
     groupDefaultWorkspace: readEnv("CODEX_IM_GROUP_DEFAULT_WORKSPACE"),
     groupAllowedChats: readListEnv(readCompatEnv("AGENT_BRIDGE_GROUP_ALLOWED_CHATS")),
     groupAutoLeave: readBooleanEnv(readCompatEnv("AGENT_BRIDGE_GROUP_AUTO_LEAVE"), true),
@@ -125,6 +126,42 @@ function readListEnv(name) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+/**
+ * 按群聊限制可触发机器人的发送者。
+ *
+ * 格式：`chatId:senderOpenId[,senderOpenId][;chatId2:sender,...]`
+ * 例：`oc_abc:ou_111,ou_222;oc_def:ou_333`
+ * 未列出的群聊不限制发送者；未列出发送者的群聊，只放行名单内的人。
+ */
+function readGroupSenderAllowlists(value) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  const result = {};
+  if (!raw) {
+    return result;
+  }
+  for (const chunk of raw.split(";")) {
+    const entry = chunk.trim();
+    if (!entry) {
+      continue;
+    }
+    const separatorIndex = entry.indexOf(":");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const chatId = entry.slice(0, separatorIndex).trim();
+    const senders = entry
+      .slice(separatorIndex + 1)
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!chatId || senders.length === 0) {
+      continue;
+    }
+    result[chatId] = Array.from(new Set([...(result[chatId] || []), ...senders]));
+  }
+  return result;
 }
 
 function readTextOnlyImageModelPatternsEnv(name, defaultPatterns) {
