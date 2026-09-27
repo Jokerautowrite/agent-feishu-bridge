@@ -362,7 +362,10 @@ function shouldRecreateThread(error) {
   const message = String(error?.message || "").toLowerCase();
   return message.includes("thread not found")
     || message.includes("unknown thread")
-    || message.includes("no rollout found for thread id");
+    || message.includes("no rollout found for thread id")
+    || message.includes("session not found")
+    || message.includes("session get failed")
+    || (message.includes("failed to restore session") && message.includes("404"));
 }
 
 /**

@@ -4,6 +4,10 @@ const assert = require("assert");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+
+// 模型目录测试走"读不到 cc-switch"的回退分支：不依赖本机 cc-switch 与网络
+process.env.CC_SWITCH_DB = path.join(os.tmpdir(), "bridge-claude-adapter-missing-cc-switch.db");
+
 const { ClaudeRpcClient } = require("../src/infra/claude/rpc-client");
 const { SessionStore } = require("../src/infra/storage/session-store");
 
@@ -63,6 +67,26 @@ async function main() {
     1
   );
   assert(!failedEvents.some((event) => event.method === "turn/completed" && event.params.turnId === failed.turnId));
+
+  const modelClient = new ClaudeRpcClient({ model: "claude-fable-5" });
+  modelClient.log = () => {};
+  const catalog = await modelClient.listModels();
+  const modelIds = catalog.models.map((item) => item.id);
+  assert(modelIds.length > 0, "model catalog must not be empty");
+  assert(
+    modelIds.every((id) => !id.toLowerCase().startsWith("sub2/")),
+    "model catalog must not expose opencodex sub2/* routes"
+  );
+  assert.equal(modelIds[0], "claude-fable-5", "configured model must lead the catalog");
+  assert.equal(
+    catalog.models.filter((item) => item.isDefault).length,
+    1,
+    "exactly one model must be marked default"
+  );
+  assert(
+    catalog.models.find((item) => item.isDefault).id === "claude-fable-5",
+    "configured model must be the default"
+  );
 
   console.log("Claude adapter tests passed");
 }

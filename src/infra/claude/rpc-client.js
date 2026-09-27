@@ -14,7 +14,7 @@
  *
  * Claude 侧用 `claude -p --output-format stream-json`，把流式事件翻成上面那套。
  */
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
 const { randomUUID } = require("crypto");
 const path = require("path");
 const os = require("os");
@@ -22,21 +22,78 @@ const os = require("os");
 const CLAUDE_BIN = process.env.CLAUDE_BIN || "claude";
 const DEFAULT_CWD = process.env.CLAUDE_BRIDGE_CWD || os.homedir();
 const SUPPORTED_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
+// 模型目录的真源是「cc-switch 当前 Claude provider 的上游 /v1/models」。
+// 2026-09-27 之前这里硬编码了 opencodex 的 sub2/* 路由名，但桥早已改走
+// cc-switch(15721) 不再经过 opencodex，那些名字在飞书选择器里就是死条目。
+const CC_SWITCH_DB = process.env.CC_SWITCH_DB
+  || path.join(os.homedir(), ".cc-switch", "cc-switch.db");
+const CC_SWITCH_PYTHON = process.env.CLAUDE_BRIDGE_PYTHON || "python3";
+const MODEL_CATALOG_TTL_MS = Number(process.env.CLAUDE_BRIDGE_MODEL_CATALOG_TTL_MS || 300000);
+// 启动时会走一次模型目录刷新，超时要留足余量（外层 15s 就判失败）
+const UPSTREAM_MODELS_TIMEOUT_MS = Number(process.env.CLAUDE_BRIDGE_MODELS_TIMEOUT_MS || 6000);
+// 拉上游失败时的兜底：Claude Code 的档位名，桥默认模型就靠这些档位映射到上游模型
 const STATIC_MODEL_CATALOG = [
   { id: "claude-fable-5", displayName: "DeepSeek Flash (Fable档)" },
   { id: "claude-opus-4-8", displayName: "Opus 4.8" },
   { id: "claude-sonnet-5", displayName: "Sonnet 5" },
   { id: "claude-haiku-4-5-20251001", displayName: "Haiku 4.5" },
-  // opencodex sub2 模型（链路: Claude CLI → opencodex → 5yuantoken）
-  { id: "sub2/deepseek-v4-flash", displayName: "DeepSeek V4 Flash (sub2)" },
-  { id: "sub2/deepseek-v4-pro", displayName: "DeepSeek V4 Pro (sub2)" },
-  { id: "sub2/gpt-5.4", displayName: "GPT-5.4 (sub2)" },
-  { id: "sub2/gpt-5.5", displayName: "GPT-5.5 (sub2)" },
-  { id: "sub2/gpt-5.6", displayName: "GPT-5.6 (sub2)" },
-  { id: "sub2/gpt-5.6-sol", displayName: "GPT-5.6 Sol (sub2)" },
-  { id: "sub2/gpt-5.6-terra", displayName: "GPT-5.6 Terra (sub2)" },
-  { id: "sub2/Qwen3.8", displayName: "Qwen3.8 (sub2)" },
 ];
+const CC_SWITCH_PROVIDER_QUERY = [
+  "import sqlite3, json, sys",
+  "try:",
+  "    conn = sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True, timeout=2)",
+  "    row = conn.execute(\"SELECT settings_config FROM providers WHERE app_type='claude' AND is_current=1 LIMIT 1\").fetchone()",
+  "    env = (json.loads(row[0]).get('env') or {}) if row else {}",
+  "    print(json.dumps({'baseUrl': env.get('ANTHROPIC_BASE_URL', ''), 'apiKey': env.get('ANTHROPIC_AUTH_TOKEN', '')}))",
+  "except Exception:",
+  "    print('{}')",
+].join("\n");
+
+/**
+ * 读 cc-switch 里当前 Claude provider 的上游地址与 key。
+ * 桥自身只拿到 15721 这个本地代理地址，上游凭据只有 cc-switch 的库里才有。
+ */
+function readCcSwitchClaudeProvider() {
+  return new Promise((resolve) => {
+    execFile(
+      CC_SWITCH_PYTHON,
+      ["-c", CC_SWITCH_PROVIDER_QUERY, CC_SWITCH_DB],
+      { timeout: 3000, maxBuffer: 1 << 20 },
+      (error, stdout) => {
+        if (error) return resolve(null);
+        try {
+          const parsed = JSON.parse(String(stdout || "").trim() || "{}");
+          resolve(parsed && parsed.baseUrl && parsed.apiKey ? parsed : null);
+        } catch {
+          resolve(null);
+        }
+      }
+    );
+  });
+}
+
+/** 拉上游 /v1/models，返回模型 id 列表。 */
+async function fetchUpstreamModelIds({ baseUrl, apiKey }) {
+  const url = String(baseUrl).replace(/\/+$/, "") + "/models";
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPSTREAM_MODELS_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}`, "x-api-key": apiKey },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.json();
+    const raw = Array.isArray(body?.data) ? body.data
+      : Array.isArray(body?.models) ? body.models : [];
+    return raw
+      .map((item) => (typeof item === "string" ? item : item?.id))
+      .map((id) => String(id || "").trim())
+      .filter(Boolean);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 // 首个事件的等待上限：超过就认定后端没起来，主动失败而不是让人干等
 const FIRST_EVENT_TIMEOUT_MS = Number(process.env.CLAUDE_BRIDGE_FIRST_EVENT_MS || 45000);
 // 整轮上限：Claude 干长活很正常，给宽一点，但不能无限
@@ -122,24 +179,63 @@ class ClaudeRpcClient {
    */
   async listModels() {
     const configuredModel = normalizeModel(this.model);
-    const modelIds = [
-      ...new Set([
-        configuredModel,
-        ...STATIC_MODEL_CATALOG.map((item) => item.id),
-      ].filter(Boolean)),
-    ];
-    const defaultModel = configuredModel || modelIds[0];
-    const displayNames = new Map(
-      STATIC_MODEL_CATALOG.map((item) => [item.id, item.displayName])
-    );
-    const data = modelIds.map((id) => ({
-      id,
-      model: id,
-      displayName: displayNames.get(id) || id,
-      isDefault: id === defaultModel,
-      supportedReasoningEfforts: [...SUPPORTED_EFFORTS],
-    }));
-    return { data, models: data };
+    const upstreamIds = await this.loadUpstreamModelIds();
+    const staticNames = new Map(STATIC_MODEL_CATALOG.map((item) => [item.id, item.displayName]));
+    const entries = [];
+    const seen = new Set();
+    const push = (id) => {
+      const key = String(id || "").trim();
+      if (!key) return;
+      const lower = key.toLowerCase();
+      // sub2/* 是 opencodex 的路由名，桥不再经过 opencodex，列出来也选不动
+      if (seen.has(lower) || lower.startsWith("sub2/")) return;
+      seen.add(lower);
+      entries.push({
+        id: key,
+        model: key,
+        displayName: staticNames.get(key) || key,
+        isDefault: key === configuredModel,
+        supportedReasoningEfforts: [...SUPPORTED_EFFORTS],
+      });
+    };
+    // 桥当前配置的模型必须进列表且排第一：飞书卡片的当前选中项靠它定位
+    push(configuredModel);
+    if (upstreamIds.length) {
+      for (const id of upstreamIds) push(id);
+    } else {
+      for (const item of STATIC_MODEL_CATALOG) push(item.id);
+    }
+    if (entries.length && !entries.some((item) => item.isDefault)) {
+      entries[0].isDefault = true;
+    }
+    return { data: entries, models: entries };
+  }
+
+  /**
+   * 当前 provider 的上游模型 id，带 TTL 缓存。
+   * 拉取失败时退回上一次成功的结果，避免在网络抖动时把选择器清空。
+   */
+  async loadUpstreamModelIds() {
+    const now = Date.now();
+    if (this.upstreamCache && now - this.upstreamCache.at < MODEL_CATALOG_TTL_MS) {
+      return this.upstreamCache.ids;
+    }
+    let ids = [];
+    try {
+      const provider = await readCcSwitchClaudeProvider();
+      if (provider) {
+        ids = await fetchUpstreamModelIds(provider);
+      } else {
+        this.log("未读到 cc-switch 当前 Claude provider，模型列表回退静态目录");
+      }
+    } catch (error) {
+      this.log(`拉取上游模型列表失败：${error.message}`);
+    }
+    if (!ids.length && this.upstreamCache?.ids?.length) {
+      return this.upstreamCache.ids;
+    }
+    this.upstreamCache = { at: now, ids };
+    return ids;
   }
 
   // ── 核心：一轮对话 ──────────────────────────────────

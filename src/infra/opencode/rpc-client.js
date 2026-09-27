@@ -103,6 +103,15 @@ function normalizeModelId(m) {
   return s.replace(/\[[^\]]*\]\s*$/, "").trim();
 }
 
+// config.model 是 "provider/model" 形式（如 "5yuantoken/deepseek-v4-flash"），
+// 而 provider 里列出的模型都是裸名。统一剥掉首个 provider 段，避免列表里出现
+// "5yuantoken/deepseek-v4-flash" 这种带前缀的异类（模型 id 自身含 "/" 时保留其余段）。
+function bareModelId(m) {
+  const s = normalizeModelId(m);
+  const i = s.indexOf("/");
+  return i >= 0 ? s.slice(i + 1) : s;
+}
+
 function extractTextFromParts(parts) {
   if (!Array.isArray(parts)) return "";
   return parts
@@ -183,9 +192,19 @@ class OpencodeRpcClient {
       // 根订阅的 key 统一用 serveRoot（具体路径），不要用 ""——
       // 否则 "" 和 serveRoot 两套订阅会同时收到 serve 根目录事件（重复）。
       const rootKey = this.serveRoot || "";
-      this.subscribeDirectory(rootKey).catch((error) => {
-        console.error(`[opencode-im] SSE subscribe failed: ${error.message}`);
-      });
+      const dirs = new Set([rootKey, "/home/box/project/reverse-reg", "/home/box"]);
+      // 把已有 session 的目录也预先订上，避免飞书首轮 turn 落在非 serveRoot 目录时错过 idle。
+      try {
+        const all = await this.listThreads({ limit: 50 });
+        for (const th of (all.result?.data || all.data || [])) {
+          if (th?.cwd) dirs.add(th.cwd);
+        }
+      } catch (_) {}
+      for (const d of dirs) {
+        this.subscribeDirectory(d || "").catch((error) => {
+          console.error(`[opencode-im] SSE subscribe failed (${d || "<root>"}): ${error.message}`);
+        });
+      }
     }
     return true;
   }
@@ -430,7 +449,7 @@ class OpencodeRpcClient {
     this.configFetched = true;
     const models = [];
     const seen = new Set();
-    const configured = config?.model || "";
+    const configured = bareModelId(config?.model || "");
     const push = (id) => {
       const n = normalizeModelId(id);
       if (n && !seen.has(n)) {
@@ -439,7 +458,7 @@ class OpencodeRpcClient {
           id: n,
           model: n,
           displayName: n,
-          isDefault: n === normalizeModelId(configured),
+          isDefault: n === configured,
           supportedReasoningEfforts: [...SUPPORTED_EFFORTS],
         });
       }
