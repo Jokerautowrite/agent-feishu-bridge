@@ -21,6 +21,7 @@ const {
   buildWorkspaceBindingsCard,
   buildWelcomeCard,
   listBoundWorkspaces,
+  resolveAgentMeta,
 } = require("../presentation/card/builders");
 const {
   addPendingReaction,
@@ -614,12 +615,16 @@ class FeishuBotRuntime {
     return this.codexAppServerProfile || "main";
   }
 
+  describeBackendName() {
+    return resolveAgentMeta(process.env.AGENT_BRIDGE_BACKEND || "").name;
+  }
+
   async switchCodexAppServerProfile(profileAlias) {
     const rawAlias = String(profileAlias || "").trim().toLowerCase();
     if (!rawAlias) {
       return {
         ok: false,
-        message: `当前 Codex 运行档：${this.describeCodexAppServerProfile()}\n\n用法：${this.buildProfileUsageText()}`,
+        message: `当前 ${this.describeBackendName()} 运行档：${this.describeCodexAppServerProfile()}\n\n用法：${this.buildProfileUsageText()}`,
       };
     }
     if (!(rawAlias in CODEX_APP_SERVER_PROFILES)) {
@@ -658,7 +663,7 @@ class FeishuBotRuntime {
     this.resumedThreadIds.clear();
     return {
       ok: true,
-      message: `已切换 Codex 运行档：${this.describeCodexAppServerProfile()}`,
+      message: `已切换 ${this.describeBackendName()} 运行档：${this.describeCodexAppServerProfile()}`,
     };
   }
 
@@ -669,13 +674,13 @@ class FeishuBotRuntime {
         chatId: normalized.chatId,
         replyToMessageId: normalized.messageId,
         text: [
-          `当前 Codex 运行档：${this.describeCodexAppServerProfile()}`,
+          `当前 ${this.describeBackendName()} 运行档：${this.describeCodexAppServerProfile()}`,
           "",
           "用法：",
           "`/profile main`",
           ...this.getExtensionProfileHelpLines(),
           "",
-          `说明：该命令会重启飞书桥背后的 Codex app-server${this.getExtensionProfileNote()}。`,
+          `说明：该命令会重启飞书桥背后的 ${this.describeBackendName()} 服务${this.getExtensionProfileNote()}。`,
         ].join("\n"),
       });
       return;
@@ -702,7 +707,7 @@ class FeishuBotRuntime {
       await this.sendInfoCardMessage({
         chatId: normalized.chatId,
         replyToMessageId: normalized.messageId,
-        text: `切换 Codex 运行档失败：${error.message}`,
+        text: `切换 ${this.describeBackendName()} 运行档失败：${error.message}`,
       });
     }
   }
@@ -916,7 +921,9 @@ function attachRuntimeForwarders() {
 
   proto.resolveChatType = function resolveChatType(chatId) {
     const normalizedChatId = typeof chatId === "string" ? chatId.trim() : "";
-    return normalizedChatId ? String(this.chatTypeByChatId.get(normalizedChatId) || "") : "";
+    return normalizedChatId
+      ? String(this.chatTypeByChatId?.get?.(normalizedChatId) || "")
+      : "";
   };
 
   /**

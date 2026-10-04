@@ -209,6 +209,9 @@ function normalizeCardActionContext(data, config) {
     provider: "feishu",
     workspaceId: config.defaultWorkspaceId,
     chatId,
+    // 卡片回调可能不带 chat_type；带上解析结果，让 /new 等群聊兜底逻辑
+    // 能直接拿到会话类型（未知时下游还会查缓存兜底）。
+    chatType: extractCardChatType(data),
     threadKey: normalizeIdentifier(data?.action?.value?.threadKey),
     senderId,
     messageId,

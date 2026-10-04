@@ -16,6 +16,7 @@ const {
   buildCardToast,
   buildInfoCard,
   mergeReplyText,
+  resolveAgentMeta,
 } = require("./builders");
 
 const CARDKIT_STREAMING_ELEMENT_ID = "streaming_content";
@@ -27,6 +28,9 @@ function isDuplicateCardAction(action, normalized) {
   const key = [
     normalized?.chatId || "",
     normalized?.threadKey || "",
+    // 卡片 messageId 参与去重键：不同卡片（如刚发出的面板）在 2s 内点击
+    // 不应互相吞掉；同一张卡片的重复回调仍会被正常拦截。
+    normalized?.messageId || "",
     action?.kind || "",
     action?.action || "",
     action?.selectedValue
@@ -218,7 +222,7 @@ async function sendInteractiveApprovalCard(runtime, { chatId, approval, replyToM
     chatId,
     replyToMessageId,
     replyInThread,
-    card: buildApprovalCard(approval),
+    card: buildApprovalCard(approval, process.env.AGENT_BRIDGE_BACKEND || ""),
   });
 }
 
@@ -228,7 +232,7 @@ async function updateInteractiveCard(runtime, { messageId, approval }) {
   }
   return patchInteractiveCard(runtime, {
     messageId,
-    card: buildApprovalResolvedCard(approval),
+    card: buildApprovalResolvedCard(approval, process.env.AGENT_BRIDGE_BACKEND || ""),
   });
 }
 
@@ -417,7 +421,7 @@ function formatCardActionFailureText(error) {
     return [
       "需要 macOS 完整磁盘访问权限。",
       "",
-      "Codex Feishu bridge 需要读取本地项目文件，但被系统拦住了：",
+      "Agent Bridge 飞书桥需要读取本地项目文件，但被系统拦住了：",
       `\`${error.message}\``,
       "",
       "请在“系统设置 -> 隐私与安全性 -> 完整磁盘访问权限”里允许：",
@@ -1246,7 +1250,7 @@ function resolveReplyCardModel(runtime, entry) {
 
   return resolveConfiguredReplyModel(runtime, entry?.threadId)
     || String(runtime?.config?.defaultCodexModel || "").trim()
-    || "Codex";
+    || resolveAgentMeta(process.env.AGENT_BRIDGE_BACKEND || "").name;
 }
 
 function resolveReplyCardEffort(runtime, entry) {
@@ -1409,6 +1413,7 @@ function buildLegacyReplyCard(runtime, runKey, entry) {
     contextText: formatContextText(runtime.latestTokenUsageByThreadId.get(entry.threadId)),
     toolCountText: formatToolCountText(runtime.toolItemIdsByRunKey.get(runKey)),
     outputVisibleTailPercent: runtime?.config?.outputVisibleTailPercent,
+    backend: process.env.AGENT_BRIDGE_BACKEND || "",
   });
 }
 
@@ -1739,6 +1744,7 @@ module.exports = {
   flushAssistantReplyCardNow,
   handleCardAction,
   isAllowedCardOperator,
+  isDuplicateCardAction,
   movePendingReactionToThread,
   openCardKitCircuit,
   patchInteractiveCard,

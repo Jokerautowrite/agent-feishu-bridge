@@ -4,7 +4,8 @@ const { splitOutputForCollapsedDisplay } = require("../../shared/output-collapse
 const { normalizeText, resolveEffectiveModelForEffort } = require("../../shared/model-catalog");
 
 // UI card builders extracted from feishu-bot runtime
-function buildApprovalCard(approval) {
+function buildApprovalCard(approval, backend = "") {
+  const agentName = resolveAgentMeta(backend).name;
   const requestType = approval?.method && approval.method.includes("command") ? "命令执行" : "敏感操作";
   const reasonText = formatApprovalReason(approval?.reason);
   const commandSummary = formatApprovalCommandSummary(approval?.command);
@@ -21,7 +22,7 @@ function buildApprovalCard(approval) {
       elements: [
         {
           tag: "markdown",
-          content: "**Codex 授权请求**",
+          content: `**${escapeCardMarkdown(agentName)} 授权请求**`,
           text_size: "notation",
         },
         {
@@ -142,7 +143,7 @@ function buildApprovalCommandPreviewElements(commandPreview) {
   ];
 }
 
-function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "", model = "", effort = "", toolText = "", thinkingText = "", usageText = "", contextText = "", toolCountText = "", outputVisibleTailPercent = 10 }) {
+function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "", model = "", effort = "", toolText = "", thinkingText = "", usageText = "", contextText = "", toolCountText = "", outputVisibleTailPercent = 10, backend = "" }) {
   const normalizedState = state || "streaming";
   const content = typeof text === "string" && text.trim()
     ? text.trim()
@@ -195,7 +196,7 @@ function buildAssistantReplyCard({ text, state, incomingText = "", elapsed = "",
     header: {
       title: {
         tag: "plain_text",
-        content: "Codex",
+        content: resolveAgentMeta(backend).name,
       },
       template: "blue",
     },
@@ -474,7 +475,7 @@ function buildWelcomeCard({
       summary: { content: "👋 欢迎使用" },
     },
     header: {
-      title: { tag: "plain_text", content: "👋 欢迎使用猫哥的飞书桥（Agent Bridge）" },
+      title: { tag: "plain_text", content: "👋 欢迎使用 Agent Bridge 飞书桥" },
       template: "indigo",
     },
     body: { elements },
@@ -760,7 +761,7 @@ function buildHelpCardText() {
   ];
 
   return [
-    "**猫哥的飞书桥（Agent Bridge）使用说明**",
+    "**Agent Bridge 飞书桥使用说明**",
     sections.map((section) => section.join("\n")).join("\n\n"),
   ].join("\n\n");
 }
@@ -907,7 +908,8 @@ function buildWorkspaceBindingsCard(items) {
   };
 }
 
-function buildThreadMessagesSummary({ workspaceRoot, thread, recentMessages }) {
+function buildThreadMessagesSummary({ workspaceRoot, thread, recentMessages, backend = "" }) {
+  const agentName = resolveAgentMeta(backend).name;
   const sections = [
     `项目：\`${workspaceRoot}\``,
     `当前线程：${formatThreadLabel(thread)}`,
@@ -923,7 +925,7 @@ function buildThreadMessagesSummary({ workspaceRoot, thread, recentMessages }) {
   const normalizedTranscript = recentMessages.map((message) => (
     message.role === "user"
       ? `😄 **你**\n> ${sanitizeAssistantMarkdown(message.text).replace(/\n/g, "\n> ")}`
-      : `🤖 <font color='blue'>**Codex**</font>\n> ${sanitizeAssistantMarkdown(message.text).replace(/\n/g, "\n> ")}`
+      : `🤖 <font color='blue'>**${escapeCardMarkdown(agentName)}**</font>\n> ${sanitizeAssistantMarkdown(message.text).replace(/\n/g, "\n> ")}`
   ));
   sections.push(normalizedTranscript.join("\n\n---\n\n"));
   return sections.join("\n\n");
@@ -960,7 +962,8 @@ function mergeReplyText(previousText, nextText) {
 }
 
 
-function buildApprovalResolvedCard(approval) {
+function buildApprovalResolvedCard(approval, backend = "") {
+  const agentName = resolveAgentMeta(backend).name;
   const resolutionLabel = approval.resolution === "approved" ? "已批准" : "已拒绝";
   const colorText = approval.resolution === "approved" ? "green" : "red";
   const reasonText = formatApprovalReason(approval?.reason);
@@ -977,7 +980,7 @@ function buildApprovalResolvedCard(approval) {
       elements: [
         {
           tag: "markdown",
-          content: `**Codex 授权请求 <font color='${colorText}'>${resolutionLabel}</font>**`,
+          content: `**${escapeCardMarkdown(agentName)} 授权请求 <font color='${colorText}'>${resolutionLabel}</font>**`,
           text_size: "notation",
         },
         {

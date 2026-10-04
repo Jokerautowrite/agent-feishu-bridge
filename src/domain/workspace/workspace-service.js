@@ -287,6 +287,12 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
     return;
   }
 
+  // 模型目录实时性：打开面板时若缓存过期就拉一次（失败回退缓存，不阻塞出错）。
+  const availableModelsResult = await loadAvailableModels(runtime, { forceRefresh: false });
+  const availableModels = Array.isArray(availableModelsResult?.models)
+    ? availableModelsResult.models
+    : [];
+
   const { threads, threadId } = await runtime.resolveWorkspaceThreadState({
     bindingKey,
     workspaceRoot,
@@ -300,8 +306,6 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
     : threads.slice(0, 3);
   const status = runtime.describeWorkspaceStatus(threadId);
   const codexParams = runtime.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
-  const availableCatalog = runtime.sessionStore.getAvailableModelCatalog();
-  const availableModels = Array.isArray(availableCatalog?.models) ? availableCatalog.models : [];
   const modelOptions = buildModelSelectOptions(availableModels);
   const effortOptions = buildEffortSelectOptions(availableModels, codexParams?.model || "");
   const quickCommandOptions = [
@@ -407,8 +411,26 @@ async function handleUnknownCommand(runtime, normalized) {
   await runtime.sendInfoCardMessage({
     chatId: normalized.chatId,
     replyToMessageId: normalized.messageId,
-    text: "无效的 Codex 命令。\n\n可使用 `/help` 查看命令教程。",
+    text: `无效的 ${resolveBackendDisplayName(runtime)} 命令。\n\n可使用 \`/help\` 查看命令教程。`,
   });
+}
+
+function resolveBackendDisplayName(runtime) {
+  if (typeof runtime?.describeBackendName === "function") {
+    return runtime.describeBackendName();
+  }
+  const backend = String(process.env.AGENT_BRIDGE_BACKEND || "").toLowerCase();
+  const known = {
+    codex: "Codex",
+    opencode: "OpenCode",
+    claude: "Claude",
+    chuang: "Chuang",
+    openclaw: "OpenClaw",
+    hermes: "Hermes Agent",
+    grok: "Grok",
+    gemini: "Gemini CLI",
+  };
+  return known[backend] || "Agent";
 }
 
 async function handleSendCommand(runtime, normalized) {
@@ -821,6 +843,7 @@ module.exports = {
   resolveWorkspaceContext,
   showStatusPanel,
   showThreadPicker,
+  loadAvailableModels,
   switchWorkspaceByPath,
   validateDefaultCodexParamsConfig,
 };
@@ -952,7 +975,13 @@ async function loadAvailableModelsForSetting(runtime, normalized, { settingType 
 
 async function loadAvailableModels(runtime, { forceRefresh = false } = {}) {
   const cached = runtime.sessionStore.getAvailableModelCatalog();
-  if (!forceRefresh && cached?.models?.length) {
+  const ttlMs = Number(runtime.config?.modelCatalogTtlMs ?? 5 * 60 * 1000);
+  const cacheAgeMs = cached?.updatedAt
+    ? Date.now() - Date.parse(cached.updatedAt)
+    : Number.POSITIVE_INFINITY;
+  // TTL 内直接用缓存；过期（或 forceRefresh / TTL=0）走实时拉取，
+  // 拉取失败仍回退到旧缓存，避免网络抖动把模型列表清空。
+  if (!forceRefresh && cached?.models?.length && Number.isFinite(cacheAgeMs) && cacheAgeMs < ttlMs) {
     return {
       models: cached.models,
       error: "",
@@ -962,7 +991,20 @@ async function loadAvailableModels(runtime, { forceRefresh = false } = {}) {
   }
 
   try {
-    const response = await runtime.codex.listModels();
+    const timeoutMs = Number(runtime.config?.modelCatalogTimeoutMs || 10000);
+    let timeoutHandle = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(
+        () => reject(new Error(`model/list timed out after ${timeoutMs}ms`)),
+        timeoutMs
+      );
+    });
+    let response;
+    try {
+      response = await Promise.race([runtime.codex.listModels(), timeoutPromise]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
     const models = extractModelCatalogFromListResponse(response);
     if (!models.length) {
       if (cached?.models?.length) {
@@ -971,12 +1013,12 @@ async function loadAvailableModels(runtime, { forceRefresh = false } = {}) {
           error: "",
           source: "cache",
           updatedAt: cached.updatedAt || "",
-          warning: "Codex 未返回模型列表，已回退本地缓存。",
+          warning: "后端未返回模型列表，已回退本地缓存。",
         };
       }
       return {
         models: [],
-        error: "Codex 未返回可用模型列表。",
+        error: "后端未返回可用模型列表。",
         source: forceRefresh ? "refresh" : "live",
         updatedAt: "",
       };

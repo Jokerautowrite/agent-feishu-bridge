@@ -1,4 +1,4 @@
-const { filterThreadsByWorkspaceRoot } = require("../../shared/workspace-paths");
+const { filterThreadsByWorkspaceRoot, isWorkspaceAllowed } = require("../../shared/workspace-paths");
 const { extractSwitchThreadId } = require("../../shared/command-parsing");
 const codexMessageUtils = require("../../infra/codex/message-utils");
 
@@ -186,8 +186,26 @@ async function ensureThreadResumed(runtime, threadId) {
 }
 
 async function handleNewCommand(runtime, normalized) {
-  const { bindingKey, workspaceRoot } = runtime.getBindingContext(normalized);
+  const { bindingKey, workspaceRoot: boundWorkspaceRoot } = runtime.getBindingContext(normalized);
+  let workspaceRoot = boundWorkspaceRoot;
+  // 与 resolveWorkspaceContext 对齐：群聊未绑定时走群默认工作区。
+  // 否则群里点「新建线程」会被“还未绑定项目”静默拦下，
+  // 下一条消息继续落到旧线程（2026-09-07 实际故障）。
+  const chatType = normalized.chatType
+    || (typeof runtime.resolveChatType === "function"
+      ? runtime.resolveChatType(normalized.chatId)
+      : "");
+  if (!workspaceRoot && chatType === "group") {
+    const groupWorkspace = String(runtime.config?.groupDefaultWorkspace || "").trim();
+    if (groupWorkspace && isWorkspaceAllowed(groupWorkspace, runtime.config.workspaceAllowlist)) {
+      workspaceRoot = groupWorkspace;
+    }
+  }
   if (!workspaceRoot) {
+    console.warn(
+      `[codex-im] new command rejected: no workspace binding `
+      + `chat=${normalized.chatId || "-"} threadKey=${normalized.threadKey || "-"} chatType=${chatType || "-"}`
+    );
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
@@ -200,6 +218,10 @@ async function handleNewCommand(runtime, normalized) {
     const createdThreadId = await queueWorkspaceThreadOperation(runtime, bindingKey, workspaceRoot, () => (
       createWorkspaceThread(runtime, { bindingKey, workspaceRoot, normalized })
     ));
+    console.log(
+      `[codex-im] new command created thread=${createdThreadId} `
+      + `binding=${bindingKey} workspace=${workspaceRoot}`
+    );
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,
@@ -207,6 +229,7 @@ async function handleNewCommand(runtime, normalized) {
     });
     await runtime.showStatusPanel(normalized, { replyToMessageId: normalized.messageId });
   } catch (error) {
+    console.error(`[codex-im] new command failed: ${error.message}`);
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
       replyToMessageId: normalized.messageId,

@@ -330,7 +330,7 @@ scripts/             测试、隐私扫描和发布检查
 
 ## License
 
-Copyright © 2026 猫哥（猫哥工作室）。
+Copyright © 2026 Jokerautowrite。
 
 - 个人学习、研究和非商业内部工具可免费使用，但必须保留署名和协议。
 - 商业用途需要获得版权所有者书面授权。
