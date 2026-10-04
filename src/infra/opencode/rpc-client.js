@@ -27,6 +27,7 @@
  *   POST 响应 info.tokens                    → thread/tokenUsage/updated
  */
 const { randomUUID } = require("crypto");
+const os = require("os");
 
 const DEFAULT_SERVER_URL = process.env.OPENCODE_SERVER_URL || "http://127.0.0.1:4096";
 const DEFAULT_AGENT = process.env.OPENCODE_AGENT || "build";
@@ -192,7 +193,12 @@ class OpencodeRpcClient {
       // 根订阅的 key 统一用 serveRoot（具体路径），不要用 ""——
       // 否则 "" 和 serveRoot 两套订阅会同时收到 serve 根目录事件（重复）。
       const rootKey = this.serveRoot || "";
-      const dirs = new Set([rootKey, "/home/box/project/reverse-reg", "/home/box"]);
+      // 跨机通用：不要硬编码某台机器的目录。额外预热目录由 env 指定
+      // （OPENCODE_BRIDGE_PREWARM_DIRS，逗号分隔，可选），再做 os.homedir() 兜底，
+      // 这样 grokbot/SER9/Oracle 三机同代码。
+      const prewarm = String(process.env.OPENCODE_BRIDGE_PREWARM_DIRS || "")
+        .split(",").map((s) => s.trim()).filter(Boolean);
+      const dirs = new Set([rootKey, os.homedir(), ...prewarm]);
       // 把已有 session 的目录也预先订上，避免飞书首轮 turn 落在非 serveRoot 目录时错过 idle。
       try {
         const all = await this.listThreads({ limit: 50 });
