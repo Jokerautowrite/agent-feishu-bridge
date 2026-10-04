@@ -61,10 +61,11 @@ function readConfig() {
     defaultCodexModel: readEnv("CODEX_IM_DEFAULT_CODEX_MODEL"),
     extraCodexModels: readListEnv(readCompatEnv("AGENT_BRIDGE_EXTRA_CODEX_MODELS")),
     defaultCodexEffort: readEnv("CODEX_IM_DEFAULT_CODEX_EFFORT"),
-    // 模型目录缓存有效期；0 = 每次使用都实时拉取。
+    // 模型目录缓存有效期（毫秒）；0 = 每次使用都实时拉取（默认）。
+    // 需要减少后端调用时可显式调大，例如 300000 = 5 分钟缓存。
     modelCatalogTtlMs: readNonNegativeIntEnv(
       readCompatEnv("CODEX_IM_MODEL_CATALOG_TTL_MS"),
-      5 * 60 * 1000
+      0
     ),
     // 单次实时拉取的上限；超时后回退缓存，避免后端卡住时面板打不开。
     modelCatalogTimeoutMs: readPositiveIntEnv(

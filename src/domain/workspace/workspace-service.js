@@ -990,6 +990,23 @@ async function loadAvailableModels(runtime, { forceRefresh = false } = {}) {
     };
   }
 
+  // 并发去重：短时间内多次打开面板/切换模型只发一次模型查询，
+  // 其余等待同一结果，避免把后端打出一串重复请求。
+  const inFlightKey = "__modelCatalogRefreshInFlight";
+  if (runtime[inFlightKey]) {
+    return runtime[inFlightKey];
+  }
+  const refreshPromise = refreshAvailableModelCatalog(runtime, { forceRefresh, cached })
+    .finally(() => {
+      if (runtime[inFlightKey] === refreshPromise) {
+        delete runtime[inFlightKey];
+      }
+    });
+  runtime[inFlightKey] = refreshPromise;
+  return refreshPromise;
+}
+
+async function refreshAvailableModelCatalog(runtime, { forceRefresh, cached }) {
   try {
     const timeoutMs = Number(runtime.config?.modelCatalogTimeoutMs || 10000);
     let timeoutHandle = null;
