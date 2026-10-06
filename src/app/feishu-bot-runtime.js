@@ -445,6 +445,11 @@ class FeishuBotRuntime {
         `[codex-im] stale turn detected thread=${threadId} turn=${turnId}; releasing Feishu runtime state`
       );
       this.cleanupThreadRuntimeState(threadId);
+      // 2026-10-07: 释放后保留路由上下文——若上一轮其实仍在跑，迟到的终态事件
+      // 还能拿到 chatId 正常补投（此前最终回复会被静默丢弃）；用户发新消息会覆盖它。
+      if (context?.chatId) {
+        this.setPendingThreadContext(threadId, context);
+      }
       if (!context?.chatId) {
         continue;
       }

@@ -50,6 +50,11 @@ async function testStaleTurnIsReleasedAndNotified() {
   assert.equal(runtime.notifications[0].chatId, "chat-1");
   assert.equal(runtime.notifications[0].replyToMessageId, "message-1");
   assert.match(runtime.notifications[0].text, /自动解除飞书端占用/);
+  assert.equal(
+    runtime.pendingChatContextByThreadId.get(threadId)?.chatId,
+    "chat-1",
+    "routing context is kept so a late terminal reply can still be delivered"
+  );
 }
 
 async function testFreshTurnIsLeftUntouched() {
