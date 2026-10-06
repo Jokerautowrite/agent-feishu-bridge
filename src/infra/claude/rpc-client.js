@@ -111,6 +111,25 @@ function normalizeModel(m) {
   return s.replace(/\[[^\]]*\]\s*$/, "").trim();
 }
 
+/**
+ * 把平铺用量包成卡片端期望的 { last:{...}, modelContextWindow } 结构。
+ * 卡片 formatContextText 只认 tokenUsage.last.totalTokens + modelContextWindow，
+ * 平铺结构会让「📝 上下文 xx/xx (x%)」进度条整行缺失。
+ * （与 opencode 后端 wrapUsageForCard 保持同一契约。）
+ */
+function buildCardUsage(usage, modelContextWindow) {
+  const inputTokens = Number(usage?.inputTokens || 0);
+  const outputTokens = Number(usage?.outputTokens || 0);
+  const last = {
+    inputTokens,
+    outputTokens,
+    totalTokens: Number(usage?.totalTokens || (inputTokens + outputTokens)),
+  };
+  const out = { last };
+  if (modelContextWindow > 0) out.modelContextWindow = modelContextWindow;
+  return out;
+}
+
 class ClaudeRpcClient {
   constructor(opts = {}) {
     this.env = opts.env || process.env;
@@ -275,9 +294,11 @@ class ClaudeRpcClient {
     }
 
     let prompt = String(text || "");
+    // 附件用 Claude Code 的 @路径 引用语法（而非纯文本路径）：
+    // 这样 Claude 会真正 Read 文件；图片（多模态）才会被"看见"，纯文本拼路径读不出图。
     if (attachments.length) {
       const files = attachments.map((a) => a?.path || a?.filePath).filter(Boolean);
-      if (files.length) prompt += "\n\n[附件]\n" + files.join("\n");
+      if (files.length) prompt += "\n\n附件：\n" + files.map((f) => `@${f}`).join("\n");
     }
 
     const args = [...this.commandArgs, "-p", prompt,
@@ -298,7 +319,6 @@ class ClaudeRpcClient {
     const child = spawn(this.command, args, {
       cwd: st.cwd, env: this.env, stdio: ["ignore", "pipe", "pipe"],
     });
-    this.running.set(tid, child);
 
     let buf = "";
     let sawText = false;
@@ -315,6 +335,19 @@ class ClaudeRpcClient {
       this.running.delete(tid);
       this.emit("turn/failed", { threadId: tid, turnId, error: { message: reason } });
     };
+    // 运行态带 cancel：/stop（turn/interrupt）经它把 settled 置位并杀子进程，
+    // 这样 close 回调不会再补发一次终态（否则停止后会多冒一条"失败"）。
+    const entry = {
+      child,
+      turnId,
+      cancel: () => {
+        if (settled) return;
+        settled = true;
+        try { child.kill("SIGTERM"); } catch {}
+        this.running.delete(tid);
+      },
+    };
+    this.running.set(tid, entry);
     let firstTimer = setTimeout(
       () => fail(`后端 ${Math.round(FIRST_EVENT_TIMEOUT_MS / 1000)} 秒内没有任何响应，已中止。常见原因：上游不可用、模型名无效、认证过期。`),
       FIRST_EVENT_TIMEOUT_MS
@@ -456,11 +489,10 @@ class ClaudeRpcClient {
       if (u) {
         this.emit("thread/tokenUsage/updated", {
           threadId,
-          tokenUsage: {
-            inputTokens: u.input_tokens || 0,
-            outputTokens: u.output_tokens || 0,
-            totalTokens: (u.input_tokens || 0) + (u.output_tokens || 0),
-          },
+          tokenUsage: buildCardUsage(
+            { inputTokens: u.input_tokens || 0, outputTokens: u.output_tokens || 0 },
+            st.contextWindow || 0
+          ),
         });
       }
       return produced;
@@ -490,11 +522,37 @@ class ClaudeRpcClient {
         this.threads.set(threadId, st);
         this.persistBackendSession(threadId, st);
       }
-      if (ev.is_error) {
-        st.resultFailed = true;
-        this.emit("turn/failed", {
-          threadId, turnId, error: { message: String(ev.result || "unknown error").slice(0, 600) },
+      // 用量与上下文窗口：Claude 在 result 里给 modelUsage[<model>].contextWindow，
+      // 这是卡片「📝 上下文 x/y (x%)」进度条的权威来源（assistant 事件里的 usage 常为 0）。
+      const mu = ev.modelUsage && typeof ev.modelUsage === "object"
+        ? Object.values(ev.modelUsage)[0]
+        : null;
+      const ctxWindow = Number(mu?.contextWindow || 0);
+      if (ctxWindow > 0) st.contextWindow = ctxWindow;
+      const ru = ev.usage || {};
+      const inputTokens = Number(mu?.inputTokens ?? ru.input_tokens ?? 0);
+      const outputTokens = Number(mu?.outputTokens ?? ru.output_tokens ?? 0);
+      if (inputTokens || outputTokens || ctxWindow) {
+        this.emit("thread/tokenUsage/updated", {
+          threadId,
+          tokenUsage: buildCardUsage({ inputTokens, outputTokens }, st.contextWindow || 0),
         });
+      }
+      if (ev.is_error) {
+        const msg = String(
+          ev.result
+          || (Array.isArray(ev.errors) ? ev.errors.join("; ") : "")
+          || "unknown error"
+        ).slice(0, 600);
+        // 坏 session 自愈：--resume 找不到会话时清掉映射，下一轮不带 --resume 重开，
+        // 免得线程永久卡在「每轮都失败」。
+        if (st.sessionId && /No conversation found|session id.*not found|could not find.*session/i.test(msg)) {
+          st.sessionId = null;
+          this.threads.set(threadId, st);
+          try { this.sessionStore?.setBackendSession(threadId, { sessionId: "", cwd: st.cwd }); } catch {}
+        }
+        st.resultFailed = true;
+        this.emit("turn/failed", { threadId, turnId, error: { message: msg } });
       }
       return false;
     }
@@ -515,20 +573,34 @@ class ClaudeRpcClient {
         effort: params?.effort,
         accessMode: params?.accessMode,
       });
-      case "turn/interrupt": return this.interrupt(params?.threadId);
+      case "turn/interrupt": return this.interrupt(params?.threadId, params?.turnId);
       default: this.log(`unhandled method ${method}`); return {};
     }
   }
   async sendNotification() { return {}; }
   async sendResponse() { return {}; }
   sendRaw() { return {}; }
-  interrupt(threadId) {
-    const c = this.running.get(threadId);
-    if (c) { c.kill("SIGTERM"); this.running.delete(threadId); }
-    this.emit("turn/cancelled", { threadId });
+  interrupt(threadId, turnId) {
+    const e = this.running.get(threadId);
+    const cancelledTurnId = turnId || (e && e.turnId) || "";
+    if (e && typeof e.cancel === "function") {
+      e.cancel();                       // 置 settled + 杀子进程，close 不再补发终态
+    } else if (e && typeof e.kill === "function") {
+      try { e.kill("SIGTERM"); } catch {}
+      this.running.delete(threadId);
+    }
+    this.emit("turn/cancelled", { threadId, turnId: cancelledTurnId });
     return {};
   }
-  killAll() { for (const c of this.running.values()) { try { c.kill("SIGTERM"); } catch {} } this.running.clear(); }
+  killAll() {
+    for (const e of this.running.values()) {
+      try {
+        if (e && typeof e.cancel === "function") e.cancel();
+        else if (e && typeof e.kill === "function") e.kill("SIGTERM");
+      } catch {}
+    }
+    this.running.clear();
+  }
   rejectAllPending() { this.killAll(); }
   getRequestTimeoutMs() { return 300000; }
   handleIncoming() {}
