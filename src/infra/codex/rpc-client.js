@@ -19,6 +19,9 @@ class CodexRpcClient {
     codexCommand = "",
     appServerProfile = "",
     extraModels = [],
+    modelCatalogUrl = "",
+    modelCatalogAuthToken = "",
+    modelCatalogTimeoutMs = 10000,
     logLevel = "normal",
     requestTimeoutMs = 45000,
     turnStartTimeoutMs = 60000,
@@ -29,6 +32,11 @@ class CodexRpcClient {
     this.codexCommand = codexCommand || resolveDefaultCodexCommand(env);
     this.appServerProfile = normalizeNonEmptyString(appServerProfile);
     this.extraModels = normalizeModelIds(extraModels);
+    this.modelCatalogUrl = normalizeNonEmptyString(modelCatalogUrl);
+    this.modelCatalogAuthToken = normalizeNonEmptyString(modelCatalogAuthToken);
+    this.modelCatalogTimeoutMs = Number.isFinite(modelCatalogTimeoutMs) && modelCatalogTimeoutMs > 0
+      ? modelCatalogTimeoutMs
+      : 10000;
     this.logLevel = normalizeLogLevel(logLevel);
     this.requestTimeoutMs = requestTimeoutMs;
     this.turnStartTimeoutMs = turnStartTimeoutMs;
@@ -317,6 +325,9 @@ class CodexRpcClient {
   }
 
   async listModels() {
+    if (this.modelCatalogUrl) {
+      return this.fetchLiveModelCatalog();
+    }
     const response = await this.sendRequest("model/list", {});
     if (!this.extraModels.length) {
       return response;
@@ -342,6 +353,41 @@ class CodexRpcClient {
       return { ...response, data: merged };
     }
     return { ...response, result: { ...(response?.result || {}), data: merged } };
+  }
+
+  async fetchLiveModelCatalog() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.modelCatalogTimeoutMs);
+    try {
+      const headers = this.modelCatalogAuthToken
+        ? { Authorization: `Bearer ${this.modelCatalogAuthToken}` }
+        : {};
+      const response = await fetch(this.modelCatalogUrl, {
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        throw new Error(`Model catalog request failed with HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      const rawModels = Array.isArray(payload?.data)
+        ? payload.data
+        : Array.isArray(payload?.models)
+          ? payload.models
+          : [];
+      const models = normalizeLiveModelEntries(rawModels);
+      if (!models.length) {
+        throw new Error("Model catalog returned no models");
+      }
+      return { data: models, models, result: { data: models } };
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        throw new Error(`Model catalog request timed out after ${this.modelCatalogTimeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async sendRequest(method, params, options = {}) {
@@ -639,6 +685,34 @@ function normalizeModelIds(models) {
     }
     seen.add(key);
     result.push(normalized);
+  }
+  return result;
+}
+
+function normalizeLiveModelEntries(entries) {
+  if (!Array.isArray(entries)) {
+    return [];
+  }
+  const result = [];
+  const seen = new Set();
+  for (const entry of entries) {
+    const raw = entry && typeof entry === "object" && !Array.isArray(entry) ? entry : {};
+    const id = normalizeNonEmptyString(typeof entry === "string" ? entry : raw.id);
+    const model = normalizeNonEmptyString(typeof entry === "string" ? entry : raw.model) || id;
+    if (!model) {
+      continue;
+    }
+    const key = model.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push({
+      ...raw,
+      id: id || model,
+      model,
+      displayName: normalizeNonEmptyString(raw.displayName || raw.display_name) || model,
+    });
   }
   return result;
 }

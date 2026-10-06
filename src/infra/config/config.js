@@ -60,6 +60,12 @@ function readConfig() {
     codexAppServerProfile: readEnv("CODEX_IM_CODEX_APP_SERVER_PROFILE"),
     defaultCodexModel: readEnv("CODEX_IM_DEFAULT_CODEX_MODEL"),
     extraCodexModels: readListEnv(readCompatEnv("AGENT_BRIDGE_EXTRA_CODEX_MODELS")),
+    modelCatalogUrl: readEnv("AGENT_BRIDGE_MODEL_CATALOG_URL"),
+    modelCatalogAuthToken: readEnv("AGENT_BRIDGE_MODEL_CATALOG_AUTH_TOKEN"),
+    modelCatalogTimeoutMs: readPositiveIntEnv(
+      readCompatEnv("AGENT_BRIDGE_MODEL_CATALOG_TIMEOUT_MS"),
+      10000
+    ),
     defaultCodexEffort: readEnv("CODEX_IM_DEFAULT_CODEX_EFFORT"),
     defaultCodexAccessMode: readAccessModeEnv(readCompatEnv("CODEX_IM_DEFAULT_CODEX_ACCESS_MODE")),
     activeTurnFollowUpMode: readActiveTurnFollowUpModeEnv(
@@ -113,7 +119,7 @@ function readConfig() {
     maxAttachmentBytes: readPositiveIntEnv(readCompatEnv("CODEX_IM_MAX_ATTACHMENT_BYTES"), 100 * 1024 * 1024),
     textOnlyImageModelPatterns: readTextOnlyImageModelPatternsEnv(
       readCompatEnv("CODEX_IM_TEXT_ONLY_MODEL_PATTERNS"),
-      ["deepseek", "big-pickle"]
+      ["deepseek-v4", "big-pickle"]
     ),
     imageVisionModel: readEnv("CODEX_IM_IMAGE_VISION_MODEL"),
     sessionsFile: readEnv("CODEX_IM_SESSIONS_FILE")

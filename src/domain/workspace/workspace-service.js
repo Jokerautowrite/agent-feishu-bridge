@@ -300,8 +300,8 @@ async function showStatusPanel(runtime, normalized, { replyToMessageId, noticeTe
     : threads.slice(0, 3);
   const status = runtime.describeWorkspaceStatus(threadId);
   const codexParams = runtime.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
-  const availableCatalog = runtime.sessionStore.getAvailableModelCatalog();
-  const availableModels = Array.isArray(availableCatalog?.models) ? availableCatalog.models : [];
+  const availableModelsResult = await loadAvailableModels(runtime, { forceRefresh: true });
+  const availableModels = availableModelsResult.models;
   const modelOptions = buildModelSelectOptions(availableModels);
   const effortOptions = buildEffortSelectOptions(availableModels, codexParams?.model || "");
   const quickCommandOptions = [
@@ -526,7 +526,7 @@ async function handleModelCommand(runtime, normalized) {
   if (!rawModel) {
     const current = runtime.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
     const availableModelsResult = await loadAvailableModels(runtime, {
-      forceRefresh: false,
+      forceRefresh: true,
     });
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
@@ -590,7 +590,7 @@ async function handleEffortCommand(runtime, normalized) {
   if (!rawEffort) {
     const current = runtime.getCodexParamsForWorkspace(bindingKey, workspaceRoot);
     const availableModelsResult = await loadAvailableModels(runtime, {
-      forceRefresh: false,
+      forceRefresh: true,
     });
     await runtime.sendInfoCardMessage({
       chatId: normalized.chatId,
@@ -904,7 +904,9 @@ function validateDefaultCodexParamsConfig(runtime, modelsInput) {
   }
 
   if (rawModel) {
-    result.model = resolveRequestedModel(models, rawModel);
+    // 2026-09-22: codex 侧配置（cc-switch 中转）的模型名可能不在 CLI 静态
+    // model/list 目录里，此处放行配置指定的模型，避免飞书桥启动即报 Invalid。
+    result.model = resolveRequestedModel(models, rawModel) || rawModel;
   }
 
   if (rawEffort) {
@@ -930,7 +932,7 @@ function normalizeEffort(value) {
 
 async function loadAvailableModelsForSetting(runtime, normalized, { settingType }) {
   const availableModelsResult = await loadAvailableModels(runtime, {
-    forceRefresh: false,
+    forceRefresh: true,
   });
   if (!availableModelsResult.error) {
     return availableModelsResult;

@@ -62,6 +62,7 @@
     "test:feishu-connection-lifecycle": "node ./scripts/test-feishu-connection-lifecycle.js",
     "test:codex-context-progress": "node ./scripts/test-codex-context-progress.js",
     "test:codex-transport-failure": "node ./scripts/test-codex-transport-failure.js",
+    "test:live-model-catalog": "node ./scripts/test-live-model-catalog.js",
     "test:media": "node ./scripts/test-media-fixtures.js",
     "test:directives": "node ./scripts/test-outbound-directives.js",
     "test:command-docs": "node ./scripts/test-command-docs.js",

@@ -6,6 +6,15 @@ const GPT_5_6_REASONING_EFFORTS = Object.freeze([
   "max",
   "ultra",
 ]);
+// 2026-09-22: 通过 EXTRA_CODEX_MODELS 注入的中转模型（deepseek/gemini 等）不会
+// 声明 supportedReasoningEfforts，这里给通用档位兜底，否则 effort 校验与下拉都为空。
+const DEFAULT_REASONING_EFFORTS = Object.freeze([
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
 const GPT_6_ASTRA_REASONING_EFFORTS = Object.freeze([
   "low",
   "medium",
@@ -110,6 +119,9 @@ function extendReasoningEffortsForModel(model, efforts) {
       ...efforts,
       ...GPT_5_6_REASONING_EFFORTS,
     ]);
+  }
+  if (!efforts.length) {
+    return normalizeReasoningEfforts(DEFAULT_REASONING_EFFORTS);
   }
   return efforts;
 }

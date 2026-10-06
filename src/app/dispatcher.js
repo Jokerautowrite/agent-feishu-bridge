@@ -123,7 +123,8 @@ async function sendWorkspaceMessage(runtime, normalized, { bindingKey, workspace
   if (hasAttachmentPayload) {
     const codexParams = runtime.getCodexParamsForWorkspace(bindingKey, workspaceRoot) || {};
     let activeModel = String(codexParams.model || runtime.config.defaultCodexModel || "").trim();
-    // 图片消息 + 主模型纯文本（如 deepseek）→ 自动切换到视觉模型（CODEX_IM_IMAGE_VISION_MODEL），
+    // 图片消息 + 主模型不支持视觉（如 deepseek-v4-*；注意 deepseek-flash 已支持图片）
+    // → 自动切换到视觉模型（CODEX_IM_IMAGE_VISION_MODEL），
     // 图片走 native 模式直接传给模型；视觉模型覆盖值随 normalized 下发到 turn/start。
     const visionModelOverride = String(runtime.config.imageVisionModel || "").trim();
     if (isImageMessage && visionModelOverride && attachmentRuntime.isTextOnlyImageModel(
